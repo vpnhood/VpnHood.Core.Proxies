@@ -335,9 +335,11 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task<UdpAssociateResult> HandleUdpAssociateCommandAsync(NetworkStream stream, TcpClient controlTcpClient, Socks5AddressType addressType, CancellationToken cancellationToken, string clientEndpointAddress)
+    private async Task<UdpAssociateResult> HandleUdpAssociateCommandAsync(NetworkStream stream, TcpClient controlTcpClient, 
+        Socks5AddressType addressType, CancellationToken cancellationToken, 
+        string clientEndpointAddress)
     {
-        // Read the client's UDP endpoint (may be ignored)
+        // Read the client's UDP endpoint (maybe ignored)
         _ = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
 
         // Create UDP socket for communicating with the SOCKS5 client
@@ -360,7 +362,7 @@ public sealed class Socks5ProxyServer : IDisposable
         try
         {
             var buffer = new byte[1];
-            await tcpClient.GetStream().ReadAsync(buffer, cts.Token).ConfigureAwait(false);
+            _ = await tcpClient.GetStream().ReadAsync(buffer, cts.Token).ConfigureAwait(false);
         }
         catch
         {
@@ -398,12 +400,12 @@ public sealed class Socks5ProxyServer : IDisposable
                 {
                     // First packet or packet from client -> parse and forward to destination
                     clientUdpEndpoint ??= sourceEndpoint;
-                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, sourceEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
+                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     // Packet from destination -> wrap and send back to client
-                    await HandleUdpDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
+                    await HandleUdpDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -417,11 +419,11 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleUdpClientToDestinationAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
+    private async Task HandleUdpClientToDestinationAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint clientEndpoint, IPEndPoint clientUdpEndpoint, CancellationToken cancellationToken)
     {
         if (data.Length < 7 || data[0] != 0 || data[1] != 0 || data[2] != 0)
         {
-            _logger?.LogWarning("Invalid SOCKS5 UDP packet format from {ClientEndpoint}", clientDescription);
+            _logger?.LogWarning("Invalid SOCKS5 UDP packet format from {ClientEndpoint}", clientUdpEndpoint);
             return;
         }
 
@@ -454,7 +456,7 @@ public sealed class Socks5ProxyServer : IDisposable
                     break;
 
                 default:
-                    _logger?.LogWarning("Unsupported address type {AddressType} from {ClientEndpoint}", addressType, clientDescription);
+                    _logger?.LogWarning("Unsupported address type {AddressType} from {ClientEndpoint}", addressType, clientUdpEndpoint);
                     return;
             }
 
@@ -464,15 +466,16 @@ public sealed class Socks5ProxyServer : IDisposable
             var payload = new byte[data.Length - offset];
             Array.Copy(data, offset, payload, 0, payload.Length);
 
-            await proxyUdpClient.SendAsync(payload, new IPEndPoint(destinationAddress, destinationPort)).ConfigureAwait(false);
+            _ = await proxyUdpClient.SendAsync(payload, new IPEndPoint(destinationAddress, destinationPort), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning(exception, "Failed to relay UDP packet from client {ClientEndpoint}", clientDescription);
+            _logger?.LogWarning(exception, "Failed to relay UDP packet from client {ClientEndpoint}", clientUdpEndpoint);
         }
     }
 
-    private async Task HandleUdpDestinationToClientAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint sourceEndpoint, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
+    private async Task HandleUdpDestinationToClientAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint sourceEndpoint, IPEndPoint clientEndpoint, IPEndPoint clientUdpEndpoint, 
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -481,11 +484,11 @@ public sealed class Socks5ProxyServer : IDisposable
             await proxyUdpClient.SendAsync(response, clientEndpoint).ConfigureAwait(false);
 
             _logger?.LogDebug("Relayed UDP response from {Source} to {ClientEndpoint}, payload size: {Size}, response size: {ResponseSize}",
-                sourceEndpoint, clientDescription, data.Length, response.Length);
+                sourceEndpoint, clientUdpEndpoint, data.Length, response.Length);
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning(exception, "Failed to relay UDP response from {Source} to client {ClientEndpoint}", sourceEndpoint, clientDescription);
+            _logger?.LogWarning(exception, "Failed to relay UDP response from {Source} to client {ClientEndpoint}", sourceEndpoint, clientUdpEndpoint);
         }
     }
 
