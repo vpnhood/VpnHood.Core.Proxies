@@ -7,7 +7,7 @@ using VpnHood.Core.Proxies.Socks5ProxyClients;
 
 namespace VpnHood.Core.Proxies.ClientApp;
 
-internal class Program
+internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
@@ -75,9 +75,9 @@ internal class Program
         Console.WriteLine("  --allow-invalid-cert   Allow invalid SSL certificates (HTTPS only)");
         Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  ProxyClient http --proxy-port 8080");
-        Console.WriteLine("  ProxyClient https --proxy-port 8443 --username admin --password secret");
-        Console.WriteLine("  ProxyClient socks5 --proxy-port 1080 --target-host google.com --target-port 80");
+        Console.WriteLine("  VhProxyClient http --proxy-port 8080");
+        Console.WriteLine("  VhProxyClient https --proxy-port 8443 --username admin --password secret");
+        Console.WriteLine("  VhProxyClient socks5 --proxy-port 1080 --target-host google.com --target-port 80");
     }
 
     private static Dictionary<string, string> ParseArgs(string[] args)
@@ -221,7 +221,7 @@ internal class Program
         // Replace {host} placeholder
         var finalData = data.Replace("{host}", targetHost);
         
-        Console.WriteLine($"Sending data: {finalData.Replace("\r\n", "\\r\\n")}");
+        Console.WriteLine($"Sending data: {finalData.Replace("\r\n", @"\r\n")}");
         var sendBytes = Encoding.UTF8.GetBytes(finalData);
         await stream.WriteAsync(sendBytes);
         await stream.FlushAsync();
@@ -270,7 +270,6 @@ internal class Program
                     else if (response.Contains("Connection: close", StringComparison.OrdinalIgnoreCase))
                     {
                         // Server will close connection when done
-                        continue;
                     }
                     else
                     {
