@@ -6,19 +6,13 @@ using VpnHood.Core.Proxies.Socks5Proxy;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyClients;
 
-public class Socks5ProxyClient : IProxyClient
+public class Socks5ProxyClient(Socks5ProxyClientOptions options, ILogger<Socks5ProxyClient>? logger = null)
+    : IProxyClient
 {
-    private readonly Socks5ProxyClientOptions _options;
-    private readonly ILogger<Socks5ProxyClient>? _logger;
+    private readonly Socks5ProxyClientOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private bool _isAuthenticated;
 
     public IPEndPoint ProxyEndPoint => _options.ProxyEndPoint;
-
-    public Socks5ProxyClient(Socks5ProxyClientOptions options, ILogger<Socks5ProxyClient>? logger = null)
-    {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-        _logger = logger;
-    }
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
@@ -33,7 +27,7 @@ public class Socks5ProxyClient : IProxyClient
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to resolve or connect to {Host}:{Port}", host, port);
+            logger?.LogError(ex, "Failed to resolve or connect to {Host}:{Port}", host, port);
             throw;
         }
     }
@@ -61,7 +55,7 @@ public class Socks5ProxyClient : IProxyClient
         ArgumentNullException.ThrowIfNull(tcpClient);
         ArgumentNullException.ThrowIfNull(destination);
 
-        _logger?.LogDebug("Connecting to {Destination} through SOCKS5 proxy {ProxyEndPoint}", destination, ProxyEndPoint);
+        logger?.LogDebug("Connecting to {Destination} through SOCKS5 proxy {ProxyEndPoint}", destination, ProxyEndPoint);
 
         try {
             if (!tcpClient.Connected) {
@@ -73,11 +67,11 @@ public class Socks5ProxyClient : IProxyClient
             await EnsureAuthenticatedAsync(stream, cancellationToken).ConfigureAwait(false);
             await PerformConnectAsync(stream, destination, cancellationToken).ConfigureAwait(false);
             
-            _logger?.LogDebug("SOCKS5 CONNECT tunnel established to {Destination}", destination);
+            logger?.LogDebug("SOCKS5 CONNECT tunnel established to {Destination}", destination);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to connect to {Destination} through SOCKS5 proxy", destination);
+            logger?.LogError(ex, "Failed to connect to {Destination} through SOCKS5 proxy", destination);
             tcpClient.Close();
             throw;
         }
@@ -90,7 +84,7 @@ public class Socks5ProxyClient : IProxyClient
     {
         ArgumentNullException.ThrowIfNull(tcpClient);
 
-        _logger?.LogDebug("Creating UDP associate through SOCKS5 proxy");
+        logger?.LogDebug("Creating UDP associate through SOCKS5 proxy");
 
         try {
             if (!tcpClient.Connected) {
@@ -116,13 +110,13 @@ public class Socks5ProxyClient : IProxyClient
                 : boundAddress;
 
             var udpEndpoint = new IPEndPoint(resultAddress, result.BoundEndpoint.Port);
-            _logger?.LogDebug("UDP associate established on {UdpEndpoint}", udpEndpoint);
+            logger?.LogDebug("UDP associate established on {UdpEndpoint}", udpEndpoint);
             
             return udpEndpoint;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to create UDP associate through SOCKS5 proxy");
+            logger?.LogError(ex, "Failed to create UDP associate through SOCKS5 proxy");
             throw;
         }
     }
@@ -137,7 +131,7 @@ public class Socks5ProxyClient : IProxyClient
 
     private async Task PerformAuthenticationAsync(NetworkStream stream, CancellationToken cancellationToken)
     {
-        _logger?.LogDebug("Performing SOCKS5 authentication negotiation");
+        logger?.LogDebug("Performing SOCKS5 authentication negotiation");
 
         // Send authentication methods
         var hasCredentials = !string.IsNullOrEmpty(_options.Username);
@@ -158,12 +152,12 @@ public class Socks5ProxyClient : IProxyClient
         }
 
         var selectedMethod = (Socks5AuthenticationType)response[1];
-        _logger?.LogDebug("Server selected authentication method: {Method}", selectedMethod);
+        logger?.LogDebug("Server selected authentication method: {Method}", selectedMethod);
 
         switch (selectedMethod)
         {
             case Socks5AuthenticationType.NoAuthenticationRequired:
-                _logger?.LogDebug("No authentication required");
+                logger?.LogDebug("No authentication required");
                 break;
 
             case Socks5AuthenticationType.UsernamePassword:
@@ -184,7 +178,7 @@ public class Socks5ProxyClient : IProxyClient
 
     private async Task PerformUsernamePasswordAuthAsync(NetworkStream stream, string username, string password, CancellationToken cancellationToken)
     {
-        _logger?.LogDebug("Performing username/password authentication for user: {Username}", username);
+        logger?.LogDebug("Performing username/password authentication for user: {Username}", username);
 
         var authBuffer = ConstructAuthBuffer(username, password);
         await stream.WriteAsync(authBuffer, cancellationToken).ConfigureAwait(false);
@@ -203,7 +197,7 @@ public class Socks5ProxyClient : IProxyClient
             throw new UnauthorizedAccessException("Username/password authentication failed");
         }
 
-        _logger?.LogDebug("Username/password authentication successful");
+        logger?.LogDebug("Username/password authentication successful");
     }
 
     private static async Task PerformConnectAsync(NetworkStream stream, IPEndPoint destination, CancellationToken cancellationToken)

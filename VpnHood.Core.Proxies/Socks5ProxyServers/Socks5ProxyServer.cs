@@ -74,12 +74,10 @@ public sealed class Socks5ProxyServer : IDisposable
         var clientEndpoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
         _logger?.LogDebug("Handling SOCKS5 client connection from {ClientEndpoint}", clientEndpoint);
 
-        var tcp = client;
-        
         try
         {
-            tcp.NoDelay = true;
-            var stream = tcp.GetStream();
+            client.NoDelay = true;
+            var stream = client.GetStream();
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
             cts.CancelAfter(_options.HandshakeTimeout);
@@ -110,7 +108,7 @@ public sealed class Socks5ProxyServer : IDisposable
                 }
                 case Socks5Command.UdpAssociate:
                 {
-                    var udpResult = await HandleUdpAssociateAsync(stream, tcp, requestHeader.AddressType, serverCt, clientEndpoint).ConfigureAwait(false);
+                    var udpResult = await HandleUdpAssociateAsync(stream, client, requestHeader.AddressType, serverCt, clientEndpoint).ConfigureAwait(false);
                     await ReplyAsync(stream, Socks5CommandReply.Succeeded, udpResult.BindAddress, udpResult.BindPort, serverCt).ConfigureAwait(false);
 
                     // Keep the TCP connection open until the client closes it
