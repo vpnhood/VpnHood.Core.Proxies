@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36414.22
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnHood.Core.Proxies", "VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj", "{FD8E4DC6-CB9D-9AC2-019D-55AF998BA92D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnHood.Core.Proxies.Test", "VpnHood.Core.Proxies.Test\VpnHood.Core.Proxies.Test.csproj", "{B01617EC-1CA2-478A-B800-24D98402E0A9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VpnHood.Core.Proxies.ConsoleApp", "ConsoleApp1\VpnHood.Core.Proxies.ConsoleApp.csproj", "{FEC4F6FD-EBB7-4E5F-91AE-5D823DC7955A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FD8E4DC6-CB9D-9AC2-019D-55AF998BA92D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD8E4DC6-CB9D-9AC2-019D-55AF998BA92D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD8E4DC6-CB9D-9AC2-019D-55AF998BA92D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD8E4DC6-CB9D-9AC2-019D-55AF998BA92D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B01617EC-1CA2-478A-B800-24D98402E0A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B01617EC-1CA2-478A-B800-24D98402E0A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B01617EC-1CA2-478A-B800-24D98402E0A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B01617EC-1CA2-478A-B800-24D98402E0A9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FEC4F6FD-EBB7-4E5F-91AE-5D823DC7955A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEC4F6FD-EBB7-4E5F-91AE-5D823DC7955A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEC4F6FD-EBB7-4E5F-91AE-5D823DC7955A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEC4F6FD-EBB7-4E5F-91AE-5D823DC7955A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DA92EF29-F80C-4E52-BADF-C0E7C45F0E34}
+	EndGlobalSection
+EndGlobal
