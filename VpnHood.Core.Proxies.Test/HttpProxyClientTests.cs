@@ -28,7 +28,7 @@ public class HttpProxyClientTests
         _ = server.RunAsync(cts.Token);
         
         // Give server time to start accepting connections
-        await Task.Delay(50);
+        await Task.Delay(50, cts.Token);
         
         return (server, actualEndpoint, cts);
     }
@@ -54,7 +54,7 @@ public class HttpProxyClientTests
             await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
 
             var stream = tcp.GetStream();
-            var payload = System.Text.Encoding.UTF8.GetBytes("hello");
+            var payload = "hello"u8.ToArray();
             await stream.WriteAsync(payload);
             var buf = new byte[payload.Length];
             await stream.ReadExactlyAsync(buf);
@@ -63,7 +63,7 @@ public class HttpProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -92,7 +92,7 @@ public class HttpProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -116,7 +116,7 @@ public class HttpProxyClientTests
             await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
 
             var stream = tcp.GetStream();
-            var payload = System.Text.Encoding.UTF8.GetBytes("hello no auth");
+            var payload = "hello no auth"u8.ToArray();
             await stream.WriteAsync(payload);
             var buf = new byte[payload.Length];
             await stream.ReadExactlyAsync(buf);
@@ -125,7 +125,7 @@ public class HttpProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -156,7 +156,7 @@ public class HttpProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }

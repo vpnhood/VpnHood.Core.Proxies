@@ -28,7 +28,7 @@ public class Socks5ProxyClientTests
         _ = server.RunAsync(cts.Token);
         
         // Give server time to start accepting connections
-        await Task.Delay(50);
+        await Task.Delay(50, cts.Token);
         
         return (server, actualEndpoint, cts);
     }
@@ -48,7 +48,7 @@ public class Socks5ProxyClientTests
             await client.ConnectAsync(tcp, echo.EndPoint, CancellationToken.None);
 
             var stream = tcp.GetStream();
-            var payload = System.Text.Encoding.UTF8.GetBytes("hello socks5");
+            var payload = "hello socks5"u8.ToArray();
             await stream.WriteAsync(payload);
             var buf = new byte[payload.Length];
             await stream.ReadExactlyAsync(buf);
@@ -56,7 +56,7 @@ public class Socks5ProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -80,7 +80,7 @@ public class Socks5ProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -100,7 +100,7 @@ public class Socks5ProxyClientTests
             await client.ConnectAsync(tcp, echo.EndPoint, CancellationToken.None);
 
             var stream = tcp.GetStream();
-            var payload = System.Text.Encoding.UTF8.GetBytes("hello socks5 no auth");
+            var payload = "hello socks5 no auth"u8.ToArray();
             await stream.WriteAsync(payload);
             var buf = new byte[payload.Length];
             await stream.ReadExactlyAsync(buf);
@@ -108,7 +108,7 @@ public class Socks5ProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
@@ -132,7 +132,7 @@ public class Socks5ProxyClientTests
         }
         finally
         {
-            cts.Cancel();
+            await cts.CancelAsync();
             server.Dispose();
         }
     }
