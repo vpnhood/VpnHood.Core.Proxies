@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageLicenseExpression>LGPL-2.1-only</PackageLicenseExpression>
+    <Company>OmegaHood LLC</Company>
+    <Copyright>© OmegaHood LLC. All rights reserved.</Copyright>
+    <PackageIcon>VpnHood.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</RepositoryUrl>
+    <Version>7.3.737</Version>
+    <FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
+  </ItemGroup>
+
+</Project>

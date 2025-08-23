@@ -18,5 +18,8 @@
 		<FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
 	</PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
+  </ItemGroup>
 
 </Project>
