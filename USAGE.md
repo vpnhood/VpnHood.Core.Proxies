@@ -5,76 +5,76 @@ This solution provides both server and client applications for testing HTTP, HTT
 ## Projects
 
 1. **VpnHood.Core.Proxies.ConsoleApp** - Proxy Server
-2. **VpnHood.Core.Proxies.Client** - Proxy Client
+2. **VpnHood.Core.Proxies.ClientApp** - Proxy Client
 
 ## Server Usage
 
 ### HTTP Proxy Server
 ```bash
-dotnet run --project ConsoleApp1 -- http --host 127.0.0.1 --port 8080
-dotnet run --project ConsoleApp1 -- http --port 8080 --username admin --password secret
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- http --host 127.0.0.1 --port 8080
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- http --port 8080 --username admin --password secret
 ```
 
 ### HTTPS Proxy Server
 ```bash
-dotnet run --project ConsoleApp1 -- https --host 127.0.0.1 --port 8443
-dotnet run --project ConsoleApp1 -- https --port 8443 --username admin --password secret
-dotnet run --project ConsoleApp1 -- https --port 8443 --cert mycert.pfx
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- https --host 127.0.0.1 --port 8443
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- https --port 8443 --username admin --password secret
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- https --port 8443 --cert mycert.pfx
 ```
 
 ### SOCKS5 Proxy Server
 ```bash
-dotnet run --project ConsoleApp1 -- socks5 --host 127.0.0.1 --port 1080
-dotnet run --project ConsoleApp1 -- socks5 --port 1080 --username user --password pass
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- socks5 --host 127.0.0.1 --port 1080
+dotnet run --project VpnHood.Core.Proxies.ServerApp -- socks5 --port 1080 --username user --password pass
 ```
 
 ## Client Usage
 
 ### Test HTTP Proxy
 ```bash
-dotnet run --project VpnHood.Core.Proxies.Client -- http --proxy-port 8080
-dotnet run --project VpnHood.Core.Proxies.Client -- http --proxy-port 8080 --username admin --password secret
-dotnet run --project VpnHood.Core.Proxies.Client -- http --proxy-port 8080 --target-host google.com --target-port 80
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- http --proxy-port 8080
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- http --proxy-port 8080 --username admin --password secret
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- http --proxy-port 8080 --target-host google.com --target-port 80
 ```
 
 ### Test HTTPS Proxy
 ```bash
-dotnet run --project VpnHood.Core.Proxies.Client -- https --proxy-port 8443 --allow-invalid-cert
-dotnet run --project VpnHood.Core.Proxies.Client -- https --proxy-port 8443 --username admin --password secret --allow-invalid-cert
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- https --proxy-port 8443 --allow-invalid-cert
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- https --proxy-port 8443 --username admin --password secret --allow-invalid-cert
 ```
 
 ### Test SOCKS4 Proxy
 ```bash
-dotnet run --project VpnHood.Core.Proxies.Client -- socks4 --proxy-port 1080
-dotnet run --project VpnHood.Core.Proxies.Client -- socks4 --proxy-port 1080 --username user
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks4 --proxy-port 1080
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks4 --proxy-port 1080 --username user
 ```
 
 ### Test SOCKS5 Proxy
 ```bash
-dotnet run --project VpnHood.Core.Proxies.Client -- socks5 --proxy-port 1080
-dotnet run --project VpnHood.Core.Proxies.Client -- socks5 --proxy-port 1080 --username user --password pass
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080
+dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080 --username user --password pass
 ```
 
 ## Example Workflow
 
 1. Start an HTTP proxy server with authentication:
    ```bash
-   dotnet run --project ConsoleApp1 -- http --port 8080 --username admin --password secret
+   dotnet run --project VpnHood.Core.Proxies.ServerApp -- http --port 8080 --username admin --password secret
    ```
 
 2. In another terminal, test the proxy:
    ```bash
-   dotnet run --project VpnHood.Core.Proxies.Client -- http --proxy-port 8080 --username admin --password secret
+   dotnet run --project VpnHood.Core.Proxies.ClientApp -- http --proxy-port 8080 --username admin --password secret
    ```
 
 3. Start a SOCKS5 proxy server:
    ```bash
-   dotnet run --project ConsoleApp1 -- socks5 --port 1080 --username user --password pass
+   dotnet run --project VpnHood.Core.Proxies.ServerApp -- socks5 --port 1080 --username user --password pass
    ```
 
 4. Test the SOCKS5 proxy:
    ```bash
-   dotnet run --project VpnHood.Core.Proxies.Client -- socks5 --proxy-port 1080 --username user --password pass
+   dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080 --username user --password pass
    ```
 
 ## Features

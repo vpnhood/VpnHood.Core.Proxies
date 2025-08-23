@@ -4,11 +4,11 @@ using System.Security.Cryptography.X509Certificates;
 using VpnHood.Core.Proxies.HttpProxyServers;
 using VpnHood.Core.Proxies.Socks5ProxyServers;
 
-namespace VpnHood.Core.Proxies.ConsoleApp;
+namespace VpnHood.Core.Proxies.ServerApp;
 
 internal class Program
 {
-    static async Task<int> Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         if (args.Length == 0)
         {
@@ -47,7 +47,7 @@ internal class Program
         return 0;
     }
 
-    static void ShowHelp()
+    private static void ShowHelp()
     {
         Console.WriteLine("VpnHood Proxy Server - supports HTTP, HTTPS, and SOCKS5 proxy protocols");
         Console.WriteLine();
@@ -72,7 +72,7 @@ internal class Program
         Console.WriteLine("  ProxyServer socks5 --port 1080 --username user --password pass");
     }
 
-    static Dictionary<string, string> ParseArgs(string[] args)
+    private static Dictionary<string, string> ParseArgs(string[] args)
     {
         var options = new Dictionary<string, string>();
         for (int i = 0; i < args.Length; i += 2)
@@ -85,7 +85,7 @@ internal class Program
         return options;
     }
 
-    static async Task RunHttpProxy(Dictionary<string, string> options)
+    private static async Task RunHttpProxy(Dictionary<string, string> options)
     {
         var host = options.GetValueOrDefault("host", "127.0.0.1");
         var port = int.Parse(options.GetValueOrDefault("port", "8080"));
@@ -118,7 +118,7 @@ internal class Program
         }
     }
 
-    static async Task RunHttpsProxy(Dictionary<string, string> options)
+    private static async Task RunHttpsProxy(Dictionary<string, string> options)
     {
         var host = options.GetValueOrDefault("host", "127.0.0.1");
         var port = int.Parse(options.GetValueOrDefault("port", "8443"));
@@ -169,7 +169,7 @@ internal class Program
         }
     }
 
-    static async Task RunSocks5Proxy(Dictionary<string, string> options)
+    private static async Task RunSocks5Proxy(Dictionary<string, string> options)
     {
         var host = options.GetValueOrDefault("host", "127.0.0.1");
         var port = int.Parse(options.GetValueOrDefault("port", "1080"));
@@ -202,7 +202,7 @@ internal class Program
         }
     }
 
-    static X509Certificate2 CreateSelfSignedCertificate(string hostname)
+    private static X509Certificate2 CreateSelfSignedCertificate(string hostname)
     {
         using var ecdsa = ECDsa.Create();
         var req = new CertificateRequest($"CN={hostname}", ecdsa, HashAlgorithmName.SHA256);

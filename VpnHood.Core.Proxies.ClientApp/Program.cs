@@ -5,11 +5,11 @@ using VpnHood.Core.Proxies.HttpProxyClients;
 using VpnHood.Core.Proxies.Socks4ProxyClients;
 using VpnHood.Core.Proxies.Socks5ProxyClients;
 
-namespace VpnHood.Core.Proxies.Client;
+namespace VpnHood.Core.Proxies.ClientApp;
 
 internal class Program
 {
-    static async Task<int> Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         if (args.Length == 0)
         {
@@ -51,7 +51,7 @@ internal class Program
         return 0;
     }
 
-    static void ShowHelp()
+    private static void ShowHelp()
     {
         Console.WriteLine("VpnHood Proxy Client - test connections through HTTP, HTTPS, SOCKS4, and SOCKS5 proxies");
         Console.WriteLine();
@@ -80,7 +80,7 @@ internal class Program
         Console.WriteLine("  ProxyClient socks5 --proxy-port 1080 --target-host google.com --target-port 80");
     }
 
-    static Dictionary<string, string> ParseArgs(string[] args)
+    private static Dictionary<string, string> ParseArgs(string[] args)
     {
         var options = new Dictionary<string, string>();
         for (int i = 0; i < args.Length; i += 2)
@@ -98,7 +98,7 @@ internal class Program
         return options;
     }
 
-    static async Task TestHttpProxy(Dictionary<string, string> options)
+    private static async Task TestHttpProxy(Dictionary<string, string> options)
     {
         var proxyHost = options.GetValueOrDefault("proxy-host", "127.0.0.1");
         var proxyPort = int.Parse(options.GetValueOrDefault("proxy-port", "8080"));
@@ -128,7 +128,7 @@ internal class Program
         await SendAndReceiveData(tcp, targetHost, data);
     }
 
-    static async Task TestHttpsProxy(Dictionary<string, string> options)
+    private static async Task TestHttpsProxy(Dictionary<string, string> options)
     {
         var proxyHost = options.GetValueOrDefault("proxy-host", "127.0.0.1");
         var proxyPort = int.Parse(options.GetValueOrDefault("proxy-port", "8443"));
@@ -160,7 +160,7 @@ internal class Program
         await SendAndReceiveData(tcp, targetHost, data);
     }
 
-    static async Task TestSocks4Proxy(Dictionary<string, string> options)
+    private static async Task TestSocks4Proxy(Dictionary<string, string> options)
     {
         var proxyHost = options.GetValueOrDefault("proxy-host", "127.0.0.1");
         var proxyPort = int.Parse(options.GetValueOrDefault("proxy-port", "1080"));
@@ -186,7 +186,7 @@ internal class Program
         await SendAndReceiveData(tcp, targetHost, data);
     }
 
-    static async Task TestSocks5Proxy(Dictionary<string, string> options)
+    private static async Task TestSocks5Proxy(Dictionary<string, string> options)
     {
         var proxyHost = options.GetValueOrDefault("proxy-host", "127.0.0.1");
         var proxyPort = int.Parse(options.GetValueOrDefault("proxy-port", "1080"));
@@ -214,7 +214,7 @@ internal class Program
         await SendAndReceiveData(tcp, targetHost, data);
     }
 
-    static async Task SendAndReceiveData(TcpClient tcp, string targetHost, string data)
+    private static async Task SendAndReceiveData(TcpClient tcp, string targetHost, string data)
     {
         var stream = tcp.GetStream();
         
@@ -259,7 +259,7 @@ internal class Program
                             {
                                 if (int.TryParse(line.Split(':')[1].Trim(), out var contentLength))
                                 {
-                                    var headerEnd = response.IndexOf("\r\n\r\n") + 4;
+                                    var headerEnd = response.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4;
                                     var bodyLength = response.Length - headerEnd;
                                     if (bodyLength >= contentLength) goto done;
                                 }

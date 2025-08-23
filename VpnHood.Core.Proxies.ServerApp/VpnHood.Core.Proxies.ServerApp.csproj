@@ -1,11 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<AssemblyName>VhProxyServer</AssemblyName>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IncludeSymbols>True</IncludeSymbols>
+		<SymbolPackageFormat>symbols.nupkg</SymbolPackageFormat>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<PathMap>$(SolutionDir)=.</PathMap>
+	</PropertyGroup>
 
 	<PropertyGroup>
 		<PackageLicenseExpression>LGPL-2.1-only</PackageLicenseExpression>
@@ -18,8 +28,8 @@
 		<FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
 	</PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
+	</ItemGroup>
 
 </Project>

@@ -1,12 +1,16 @@
 <Project Sdk="MSTest.Sdk/3.6.4">
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<UseVSTest>true</UseVSTest>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <UseVSTest>true</UseVSTest>
-  </PropertyGroup>
+	<PropertyGroup>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IncludeSymbols>True</IncludeSymbols>
+		<SymbolPackageFormat>symbols.nupkg</SymbolPackageFormat>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
 
 	<PropertyGroup>
 		<PackageLicenseExpression>LGPL-2.1-only</PackageLicenseExpression>
@@ -19,8 +23,8 @@
 		<FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
 	</PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\VpnHood.Core.Proxies\VpnHood.Core.Proxies.csproj" />
+	</ItemGroup>
 
 </Project>
