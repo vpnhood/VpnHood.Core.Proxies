@@ -66,7 +66,7 @@ public class HttpProxyClient(HttpProxyOptions options) : IProxyClient
         }
         builder.Append("Content-Length: 0\r\n");
         builder.Append("\r\n");
-        var bytes = Encoding.ASCII.GetBytes(builder.ToString());
+        var bytes = Encoding.UTF8.GetBytes(builder.ToString());
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }

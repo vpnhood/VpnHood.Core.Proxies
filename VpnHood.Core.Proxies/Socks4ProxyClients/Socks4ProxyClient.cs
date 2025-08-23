@@ -43,7 +43,7 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
             throw new ProxyClientException(SocketError.OperationNotSupported, "SOCKS4 only supports IPv4 addresses.");
 
         var user = userId ?? string.Empty;
-        var userBytes = Encoding.ASCII.GetBytes(user);
+        var userBytes = Encoding.UTF8.GetBytes(user);
         var hostBytes = domainName != null ? Encoding.UTF8.GetBytes(domainName) : null;
         var addressBytes = ip.GetAddressBytes();
         var buffer = new byte[1 + 1 + 2 + 4 + userBytes.Length + 1 + (hostBytes?.Length ?? 0) + (domainName != null ? 1 : 0)];

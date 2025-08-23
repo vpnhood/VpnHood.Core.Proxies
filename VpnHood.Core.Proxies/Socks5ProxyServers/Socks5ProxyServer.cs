@@ -205,7 +205,7 @@ public sealed class Socks5ProxyServer(Socks5ProxyServerOptions options)
                 }
                 else if (addressType == Socks5AddressType.DomainName) {
                     var len = bufArray[offset++];
-                    var host = Encoding.ASCII.GetString(bufArray, offset, len);
+                    var host = Encoding.UTF8.GetString(bufArray, offset, len);
                     offset += len;
                     try {
                         var ips = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
@@ -283,7 +283,7 @@ public sealed class Socks5ProxyServer(Socks5ProxyServerOptions options)
                     var len = lenBuf[0]; var buf = new byte[len + 2];
                     await stream.ReadExactlyAsync(buf, ct).ConfigureAwait(false);
                     var port = (buf[len] << 8) | buf[len + 1];
-                    var host = Encoding.ASCII.GetString(buf.AsSpan(0, len));
+                    var host = Encoding.UTF8.GetString(buf.AsSpan(0, len));
                     var ips = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
                     var ip = Array.Find(ips, a => a.AddressFamily == AddressFamily.InterNetwork) ?? ips[0];
                     return (ip, port);

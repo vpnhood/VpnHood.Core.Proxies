@@ -46,8 +46,8 @@ public sealed class HttpsProxyServer(HttpProxyServerOptions options)
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck
             }, ct).ConfigureAwait(false);
 
-            var reader = new StreamReader(ssl, Encoding.ASCII, leaveOpen: true);
-            var writer = new StreamWriter(ssl, Encoding.ASCII) { NewLine = "\r\n", AutoFlush = true };
+            var reader = new StreamReader(ssl, Encoding.UTF8, leaveOpen: true);
+            var writer = new StreamWriter(ssl, Encoding.UTF8) { NewLine = "\r\n", AutoFlush = true };
 
             var requestLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(requestLine)) return;

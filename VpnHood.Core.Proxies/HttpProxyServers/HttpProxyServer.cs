@@ -32,8 +32,8 @@ public sealed class HttpProxyServer(HttpProxyServerOptions options)
         var ct = cts.Token;
 
         try {
-            var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-            var writer = new StreamWriter(stream, Encoding.ASCII) { NewLine = "\r\n", AutoFlush = true };
+            var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+            var writer = new StreamWriter(stream, Encoding.UTF8) { NewLine = "\r\n", AutoFlush = true };
 
             var requestLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(requestLine)) return;
@@ -83,7 +83,7 @@ public sealed class HttpProxyServer(HttpProxyServerOptions options)
                 reqBuilder.Append(method).Append(' ').Append(uri.PathAndQuery).Append(" HTTP/1.1\r\n");
                 if (hostHeader == null) reqBuilder.Append("Host: ").Append(host).Append(":").Append(port).Append("\r\n");
                 reqBuilder.Append("Connection: close\r\n\r\n");
-                var bytes = Encoding.ASCII.GetBytes(reqBuilder.ToString());
+                var bytes = Encoding.UTF8.GetBytes(reqBuilder.ToString());
                 await remoteStream.WriteAsync(bytes, serverCt).ConfigureAwait(false);
                 await remoteStream.FlushAsync(serverCt).ConfigureAwait(false);
                 await PumpAsync(remoteStream, stream, serverCt).ConfigureAwait(false);

@@ -37,7 +37,7 @@ public class HttpProxyClientTests
         await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
 
         var stream = tcp.GetStream();
-        var payload = System.Text.Encoding.ASCII.GetBytes("hello");
+        var payload = System.Text.Encoding.UTF8.GetBytes("hello");
         await stream.WriteAsync(payload);
         var buf = new byte[payload.Length];
         await stream.ReadExactlyAsync(buf);

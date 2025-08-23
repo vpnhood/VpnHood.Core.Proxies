@@ -38,7 +38,7 @@ public class Socks5ProxyClientTests
         await client.ConnectAsync(tcp, echo.EndPoint, CancellationToken.None);
 
         var stream = tcp.GetStream();
-        var payload = System.Text.Encoding.ASCII.GetBytes("hello socks5");
+        var payload = System.Text.Encoding.UTF8.GetBytes("hello socks5");
         await stream.WriteAsync(payload);
         var buf = new byte[payload.Length];
         await stream.ReadExactlyAsync(buf);

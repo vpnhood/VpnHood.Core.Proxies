@@ -327,7 +327,7 @@ public class Socks5ProxyClient(Socks5ProxyClientOptions clientProxyOptions) : IP
             case Socks5AddressType.DomainName:
                 var len = relayDatagram[offset];
                 offset += 1;
-                host = Encoding.ASCII.GetString(relayDatagram.Slice(offset, len));
+                host = Encoding.UTF8.GetString(relayDatagram.Slice(offset, len));
                 offset += len; 
                 break;
 
