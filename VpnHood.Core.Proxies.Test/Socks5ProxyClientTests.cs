@@ -136,4 +136,148 @@ public class Socks5ProxyClientTests
             server.Dispose();
         }
     }
+
+    [TestMethod]
+    public async Task Socks5_UdpAssociate_WithAuth_Succeeds()
+    {
+        using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
+        var (server, proxyEp, cts) = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+
+        try
+        {
+            var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyEp, Username = "user", Password = "pass" };
+            var client = new Socks5ProxyClient(options);
+
+            // Create UDP client for sending/receiving data
+            using var udpClient = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+            var clientUdpEndpoint = (IPEndPoint)udpClient.Client.LocalEndPoint!;
+
+            // Establish TCP control connection and UDP association
+            using var controlTcp = new TcpClient();
+            var proxyUdpEndpoint = await client.CreateUdpAssociateAsync(controlTcp, clientUdpEndpoint, CancellationToken.None);
+
+            // Prepare test data
+            var testMessage = "Hello UDP through SOCKS5!"u8.ToArray();
+            
+            // Create SOCKS5 UDP request packet
+            var requestBuffer = new byte[1024];
+            var requestLength = Socks5ProxyClient.WriteUdpRequest(requestBuffer, udpEcho.EndPoint, testMessage);
+            var udpRequest = requestBuffer.AsMemory(0, requestLength);
+
+            // Send UDP packet through proxy
+            await udpClient.SendAsync(udpRequest.ToArray(), proxyUdpEndpoint);
+
+            // Receive response through proxy
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var response = await udpClient.ReceiveAsync(timeoutCts.Token);
+
+            // Parse SOCKS5 UDP response
+            var responseEndpoint = Socks5ProxyClient.ParseUdpResponse(response.Buffer, out var responsePayload);
+            
+            // Verify the response
+            Assert.IsNotNull(responseEndpoint.Address);
+            Assert.AreEqual(udpEcho.EndPoint.Address, responseEndpoint.Address);
+            Assert.AreEqual(udpEcho.EndPoint.Port, responseEndpoint.Port);
+            CollectionAssert.AreEqual(testMessage, responsePayload.ToArray());
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            server.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task Socks5_UdpAssociate_WithoutAuth_Fails()
+    {
+        using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
+        var (server, proxyEp, cts) = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+
+        try
+        {
+            var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyEp }; // No credentials
+            var client = new Socks5ProxyClient(options);
+
+            using var controlTcp = new TcpClient();
+            
+            await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+            {
+                await client.CreateUdpAssociateAsync(controlTcp, CancellationToken.None);
+            });
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            server.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task Socks5_UdpAssociate_NoAuth_Succeeds()
+    {
+        using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
+        var (server, proxyEp, cts) = await StartSocks5ProxyAsync(); // No auth required
+
+        try
+        {
+            var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyEp };
+            var client = new Socks5ProxyClient(options);
+
+            // Create UDP client
+            using var udpClient = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+            var clientUdpEndpoint = (IPEndPoint)udpClient.Client.LocalEndPoint!;
+
+            // Establish UDP association
+            using var controlTcp = new TcpClient();
+            var proxyUdpEndpoint = await client.CreateUdpAssociateAsync(controlTcp, clientUdpEndpoint, CancellationToken.None);
+
+            // Test UDP communication
+            var testMessage = "Hello UDP no auth!"u8.ToArray();
+            var requestBuffer = new byte[1024];
+            var requestLength = Socks5ProxyClient.WriteUdpRequest(requestBuffer, udpEcho.EndPoint, testMessage);
+            
+            await udpClient.SendAsync(requestBuffer.AsMemory(0, requestLength).ToArray(), proxyUdpEndpoint);
+
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var response = await udpClient.ReceiveAsync(timeoutCts.Token);
+
+            var responseEndpoint = Socks5ProxyClient.ParseUdpResponse(response.Buffer, out var responsePayload);
+            
+            Assert.IsNotNull(responseEndpoint.Address);
+            CollectionAssert.AreEqual(testMessage, responsePayload.ToArray());
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            server.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task Socks5_UdpAssociate_Simple_Test()
+    {
+        var (server, proxyEp, cts) = await StartSocks5ProxyAsync(); // No auth required
+
+        try
+        {
+            var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyEp };
+            var client = new Socks5ProxyClient(options);
+
+            // Just test the UDP ASSOCIATE command without actual UDP traffic
+            using var controlTcp = new TcpClient();
+            var proxyUdpEndpoint = await client.CreateUdpAssociateAsync(controlTcp, CancellationToken.None);
+            
+            // Verify we got a valid UDP endpoint from the proxy
+            Assert.IsNotNull(proxyUdpEndpoint);
+            Assert.IsTrue(proxyUdpEndpoint.Port > 0);
+            
+            // The control connection should remain open
+            Assert.IsTrue(controlTcp.Connected);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            server.Dispose();
+        }
+    }
 }

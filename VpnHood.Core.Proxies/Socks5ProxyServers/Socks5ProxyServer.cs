@@ -243,7 +243,8 @@ public sealed class Socks5ProxyServer : IDisposable
         return ((Socks5Command)requestHeader[1], (Socks5AddressType)requestHeader[3]);
     }
 
-    private async Task HandleConnectAsync(NetworkStream clientStream, IPAddress destAddress, int destPort, CancellationToken ct, string clientEndpoint)
+    private async Task HandleConnectAsync(NetworkStream clientStream, IPAddress destAddress, int destPort, CancellationToken cancellationToken, 
+        string clientEndpoint)
     {
         try
         {
@@ -253,45 +254,45 @@ public sealed class Socks5ProxyServer : IDisposable
             remote.NoDelay = true;
             
             // Set connection timeout
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             connectCts.CancelAfter(TimeSpan.FromSeconds(30));
             
             await remote.ConnectAsync(destAddress, destPort, connectCts.Token).ConfigureAwait(false);
             
             var localEndPoint = (IPEndPoint)remote.Client.LocalEndPoint!;
-            await ReplyAsync(clientStream, Socks5CommandReply.Succeeded, localEndPoint.Address, localEndPoint.Port, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.Succeeded, localEndPoint.Address, localEndPoint.Port, cancellationToken).ConfigureAwait(false);
 
             _logger?.LogDebug("Tunneling established between {ClientEndpoint} and {DestAddress}:{DestPort}", clientEndpoint, destAddress, destPort);
 
             var remoteStream = remote.GetStream();
-            await PumpStreamsAsync(clientStream, remoteStream, ct).ConfigureAwait(false);
+            await PumpStreamsAsync(clientStream, remoteStream, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            await ReplyAsync(clientStream, Socks5CommandReply.TtlExpired, IPAddress.Any, 0, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.TtlExpired, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
         {
-            await ReplyAsync(clientStream, Socks5CommandReply.ConnectionRefused, IPAddress.Any, 0, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.ConnectionRefused, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.HostUnreachable)
         {
-            await ReplyAsync(clientStream, Socks5CommandReply.HostUnreachable, IPAddress.Any, 0, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.HostUnreachable, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.NetworkUnreachable)
         {
-            await ReplyAsync(clientStream, Socks5CommandReply.NetworkUnreachable, IPAddress.Any, 0, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.NetworkUnreachable, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to establish connection to {DestAddress}:{DestPort} for {ClientEndpoint}", destAddress, destPort, clientEndpoint);
-            await ReplyAsync(clientStream, Socks5CommandReply.GeneralSocksServerFailure, IPAddress.Any, 0, ct).ConfigureAwait(false);
+            await ReplyAsync(clientStream, Socks5CommandReply.GeneralSocksServerFailure, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
     }
 
     private async Task<(IPAddress bindAddress, int bindPort)> HandleUdpAssociateAsync(NetworkStream stream, TcpClient controlTcp, Socks5AddressType addressType, CancellationToken ct, string clientEndpoint)
     {
-        // Read the client's UDP endpoint (may be ignored)
+        // Read the client's UDP endpoint (maybe ignored)
         _ = await ReadDestAsync(stream, addressType, ct).ConfigureAwait(false);
         
         var udp = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
@@ -368,7 +369,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleUdpClientToDestination(UdpClient udp, byte[] data, IPEndPoint source, CancellationToken ct)
+    private async Task HandleUdpClientToDestination(UdpClient udp, byte[] data, IPEndPoint source, CancellationToken cancellationToken)
     {
         if (data.Length < 7 || data[0] != 0 || data[1] != 0 || data[2] != 0)
             return;
@@ -378,7 +379,7 @@ public sealed class Socks5ProxyServer : IDisposable
             var offset = 3;
             var addressType = (Socks5AddressType)data[offset++];
             
-            IPAddress? destinationAddress = null;
+            IPAddress? destinationAddress;
             
             switch (addressType)
             {
@@ -397,7 +398,7 @@ public sealed class Socks5ProxyServer : IDisposable
                     var domain = Encoding.UTF8.GetString(data, offset, domainLen);
                     offset += domainLen;
                     
-                    var addresses = await Dns.GetHostAddressesAsync(domain, ct).ConfigureAwait(false);
+                    var addresses = await Dns.GetHostAddressesAsync(domain, cancellationToken).ConfigureAwait(false);
                     destinationAddress = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses[0];
                     break;
                     
@@ -411,7 +412,7 @@ public sealed class Socks5ProxyServer : IDisposable
             var payload = new byte[data.Length - offset];
             Array.Copy(data, offset, payload, 0, payload.Length);
             
-            await udp.SendAsync(payload, new IPEndPoint(destinationAddress!, destinationPort)).ConfigureAwait(false);
+            await udp.SendAsync(payload, new IPEndPoint(destinationAddress, destinationPort)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
