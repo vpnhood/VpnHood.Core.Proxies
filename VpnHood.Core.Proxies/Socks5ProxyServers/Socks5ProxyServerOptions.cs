@@ -8,7 +8,7 @@ public class Socks5ProxyServerOptions
 
     public string? Username { get; init; }
     public string? Password { get; init; }
-
-    public int Backlog { get; init; } = 512;
     public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan HostConnectionTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public int Backlog { get; init; } = 512;
 }

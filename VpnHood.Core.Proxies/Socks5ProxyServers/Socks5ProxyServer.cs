@@ -266,10 +266,11 @@ public sealed class Socks5ProxyServer : IDisposable
             remote.NoDelay = true;
 
             // Set connection timeout
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(30));
-
-            await remote.ConnectAsync(destAddress, destPort, connectCts.Token).ConfigureAwait(false);
+            using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                connectCts.CancelAfter(_options.HostConnectionTimeout);
+                await remote.ConnectAsync(destAddress, destPort, connectCts.Token).ConfigureAwait(false);
+            }
 
             var localEndPoint = (IPEndPoint)remote.Client.LocalEndPoint!;
             await ReplyAsync(clientStream, Socks5CommandReply.Succeeded, localEndPoint.Address, localEndPoint.Port, cancellationToken).ConfigureAwait(false);
