@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using VpnHood.Core.Proxies.HttpProxyServers;
 using VpnHood.Core.Proxies.Socks5ProxyServers;
+using IPEndPoint = System.Net.IPEndPoint;
 
 namespace VpnHood.Core.Proxies.ServerApp;
 
