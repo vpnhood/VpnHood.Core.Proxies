@@ -3,36 +3,63 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace VpnHood.Core.Proxies.HttpProxyClients;
 
-public class HttpProxyClient(HttpProxyOptions options) : IProxyClient
+public class HttpProxyClient : IProxyClient
 {
+    private readonly HttpProxyOptions _options;
+    private readonly ILogger<HttpProxyClient>? _logger;
+
+    public HttpProxyClient(HttpProxyOptions options, ILogger<HttpProxyClient>? logger = null)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger;
+    }
+
     public async Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
         => await ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken).ConfigureAwait(false);
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(tcpClient);
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
+
+        _logger?.LogDebug("Connecting to {Host}:{Port} through HTTP proxy {ProxyEndPoint}", host, port, _options.ProxyEndPoint);
+
         try {
-            if (!tcpClient.Connected)
-                await tcpClient.ConnectAsync(options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+            if (!tcpClient.Connected) {
+                tcpClient.NoDelay = true;
+                await tcpClient.ConnectAsync(_options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+            }
 
             Stream stream = tcpClient.GetStream();
 
-            if (options.UseTls) {
+            if (_options.UseTls) {
+                _logger?.LogDebug("Establishing TLS connection to proxy");
                 var ssl = new SslStream(stream, leaveInnerStreamOpen: true, UserCertificateValidationCallback);
+                
+                var targetHost = _options.ProxyHost ?? _options.ProxyEndPoint.Address.ToString();
                 await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
-                    TargetHost = options.ProxyHost ?? options.ProxyEndPoint.Address.ToString(),
+                    TargetHost = targetHost,
                     EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
                     CertificateRevocationCheckMode = X509RevocationMode.NoCheck
                 }, cancellationToken).ConfigureAwait(false);
+                
                 stream = ssl;
+                _logger?.LogDebug("TLS connection established");
             }
 
             await SendConnectRequest(stream, host, port, cancellationToken).ConfigureAwait(false);
             await ReadConnectResponse(stream, cancellationToken).ConfigureAwait(false);
+            
+            _logger?.LogDebug("HTTP CONNECT tunnel established to {Host}:{Port}", host, port);
         }
-        catch {
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to connect to {Host}:{Port} through HTTP proxy", host, port);
             tcpClient.Close();
             throw;
         }
@@ -40,11 +67,22 @@ public class HttpProxyClient(HttpProxyOptions options) : IProxyClient
 
     private bool UserCertificateValidationCallback(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
     {
-        return options.AllowInvalidCertificates || sslPolicyErrors == SslPolicyErrors.None;
+        if (_options.AllowInvalidCertificates) {
+            _logger?.LogWarning("Accepting invalid certificate due to AllowInvalidCertificates option");
+            return true;
+        }
+        
+        if (sslPolicyErrors != SslPolicyErrors.None) {
+            _logger?.LogWarning("SSL certificate validation failed: {SslPolicyErrors}", sslPolicyErrors);
+            return false;
+        }
+        
+        return true;
     }
 
     private static string BuildAuthority(string host, int port)
     {
+        // IPv6 addresses need to be enclosed in brackets
         var isIpv6Literal = host.Contains(':') && host.IndexOf(':') != host.LastIndexOf(':');
         return isIpv6Literal ? $"[{host}]:{port}" : $"{host}:{port}";
     }
@@ -52,57 +90,118 @@ public class HttpProxyClient(HttpProxyOptions options) : IProxyClient
     private async Task SendConnectRequest(Stream stream, string host, int port, CancellationToken cancellationToken)
     {
         var authority = BuildAuthority(host, port);
-        var builder = new StringBuilder();
-        builder.Append($"CONNECT {authority} HTTP/1.1\r\n");
-        builder.Append($"Host: {authority}\r\n");
-        builder.Append("Connection: keep-alive\r\n");
-        if (options.Username != null) {
-            var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{options.Username}:{options.Password ?? string.Empty}"));
-            builder.Append($"Proxy-Authorization: Basic {auth}\r\n");
+        var requestBuilder = new StringBuilder();
+        
+        requestBuilder.Append($"CONNECT {authority} HTTP/1.1\r\n");
+        requestBuilder.Append($"Host: {authority}\r\n");
+        requestBuilder.Append("Connection: keep-alive\r\n");
+        
+        // Add authentication if provided
+        if (_options.Username != null) {
+            var credentials = $"{_options.Username}:{_options.Password ?? string.Empty}";
+            var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
+            requestBuilder.Append($"Proxy-Authorization: Basic {encodedCredentials}\r\n");
+            _logger?.LogDebug("Added proxy authentication for user: {Username}", _options.Username);
         }
-        if (options.ExtraHeaders != null) {
-            foreach (var kv in options.ExtraHeaders)
-                builder.Append(kv.Key).Append(": ").Append(kv.Value).Append("\r\n");
+        
+        // Add extra headers if provided
+        if (_options.ExtraHeaders != null) {
+            foreach (var header in _options.ExtraHeaders) {
+                requestBuilder.Append($"{header.Key}: {header.Value}\r\n");
+            }
         }
-        builder.Append("Content-Length: 0\r\n");
-        builder.Append("\r\n");
-        var bytes = Encoding.UTF8.GetBytes(builder.ToString());
-        await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+        
+        requestBuilder.Append("Content-Length: 0\r\n");
+        requestBuilder.Append("\r\n");
+        
+        var requestBytes = Encoding.UTF8.GetBytes(requestBuilder.ToString());
+        await stream.WriteAsync(requestBytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        
+        _logger?.LogDebug("Sent CONNECT request to proxy");
     }
 
-    private static async Task ReadConnectResponse(Stream stream, CancellationToken ct)
+    private async Task ReadConnectResponse(Stream stream, CancellationToken cancellationToken)
     {
-        var buffer = new byte[4096];
-        var received = 0;
-        while (true) {
-            var n = await stream.ReadAsync(buffer.AsMemory(received, buffer.Length - received), ct).ConfigureAwait(false);
-            if (n == 0) throw new IOException("Proxy closed connection.");
-            received += n;
-            if (received >= 4) {
-                for (var i = 3; i < received; i++) {
-                    if (buffer[i - 3] == '\r' && buffer[i - 2] == '\n' && buffer[i - 1] == '\r' && buffer[i] == '\n') {
-                        var headerText = Encoding.UTF8.GetString(buffer, 0, i + 1);
-                        ValidateStatus(headerText);
-                        return;
+        const int maxResponseSize = 8192; // Reasonable limit for HTTP response headers
+        var buffer = new byte[maxResponseSize];
+        var totalReceived = 0;
+        
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30)); // Response timeout
+        
+        try {
+            while (totalReceived < buffer.Length) {
+                var bytesRead = await stream.ReadAsync(
+                    buffer.AsMemory(totalReceived, buffer.Length - totalReceived), 
+                    timeout.Token).ConfigureAwait(false);
+                
+                if (bytesRead == 0) {
+                    throw new IOException("Proxy closed connection before sending complete response");
+                }
+                
+                totalReceived += bytesRead;
+                
+                // Look for end of HTTP headers (double CRLF)
+                if (totalReceived >= 4) {
+                    for (var i = 3; i < totalReceived; i++) {
+                        if (buffer[i - 3] == '\r' && buffer[i - 2] == '\n' && 
+                            buffer[i - 1] == '\r' && buffer[i] == '\n') {
+                            var responseText = Encoding.UTF8.GetString(buffer, 0, i + 1);
+                            ValidateConnectResponse(responseText);
+                            _logger?.LogDebug("Received successful CONNECT response from proxy");
+                            return;
+                        }
                     }
                 }
             }
-            if (received == buffer.Length)
-                throw new IOException("HTTP proxy response too large.");
+            
+            throw new IOException("HTTP proxy response headers too large");
+        }
+        catch (OperationCanceledException) when (timeout.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested) {
+            throw new TimeoutException("Timeout waiting for proxy response");
         }
     }
 
-    private static void ValidateStatus(string headerText)
+    private static void ValidateConnectResponse(string responseText)
     {
-        var firstLineEnd = headerText.IndexOf("\r\n", StringComparison.Ordinal);
-        if (firstLineEnd < 0) throw new IOException("Invalid HTTP proxy response.");
-        var statusLine = headerText[..firstLineEnd];
-        var parts = statusLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2 || !int.TryParse(parts[1], out var code))
-            throw new IOException("Invalid HTTP proxy status line.");
+        // Remove any BOM that might be present
+        if (responseText.StartsWith('\ufeff'))
+        {
+            responseText = responseText[1..];
+        }
 
-        if (code != 200)
-            throw new HttpRequestException(message: $"HTTP proxy CONNECT failed with status {code}.", inner: null, statusCode: (HttpStatusCode)code);
+        var lines = responseText.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+        {
+            throw new IOException("Empty HTTP proxy response");
+        }
+        
+        var statusLine = lines[0];
+        var statusParts = statusLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        
+        if (statusParts.Length < 2)
+        {
+            throw new IOException($"Invalid HTTP proxy status line: {statusLine}");
+        }
+        
+        if (!statusParts[0].StartsWith("HTTP/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException($"Invalid HTTP version in proxy response: {statusParts[0]}");
+        }
+        
+        if (!int.TryParse(statusParts[1], out var statusCode))
+        {
+            throw new IOException($"Invalid HTTP status code in proxy response: {statusParts[1]}");
+        }
+        
+        if (statusCode != 200)
+        {
+            var reasonPhrase = statusParts.Length > 2 ? statusParts[2] : "Unknown";
+            throw new HttpRequestException(
+                $"HTTP proxy CONNECT failed with status {statusCode}: {reasonPhrase}", 
+                null, 
+                (HttpStatusCode)statusCode);
+        }
     }
 }
