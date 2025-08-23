@@ -11,7 +11,7 @@ public sealed class Socks5ProxyServer : IDisposable
     private readonly Socks5ProxyServerOptions _options;
     private readonly ILogger<Socks5ProxyServer>? _logger;
     private readonly TcpListener _listener;
-    private readonly CancellationTokenSource _serverCts = new();
+    private readonly CancellationTokenSource _serverCancellationTokenSource = new();
     private volatile bool _isRunning;
 
     public Socks5ProxyServer(Socks5ProxyServerOptions options, ILogger<Socks5ProxyServer>? logger = null)
@@ -33,25 +33,25 @@ public sealed class Socks5ProxyServer : IDisposable
     {
         if (!_isRunning) return;
         _isRunning = false;
-        _serverCts.Cancel();
+        _serverCancellationTokenSource.Cancel();
         _listener.Stop();
         _logger?.LogInformation("SOCKS5 proxy server stopped");
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _serverCts.Token);
-        var operationCancellationToken = linkedCts.Token;
+        using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _serverCancellationTokenSource.Token);
+        var cancellationTokenForOperation = linkedCancellationTokenSource.Token;
 
         Start();
         try
         {
-            while (!operationCancellationToken.IsCancellationRequested)
+            while (!cancellationTokenForOperation.IsCancellationRequested)
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(operationCancellationToken).ConfigureAwait(false);
-                    _ = Task.Run(() => HandleClientAsync(client, operationCancellationToken), operationCancellationToken);
+                    var client = await _listener.AcceptTcpClientAsync(cancellationTokenForOperation).ConfigureAwait(false);
+                    _ = Task.Run(() => HandleClientAsync(client, cancellationTokenForOperation), cancellationTokenForOperation);
                 }
                 catch (OperationCanceledException)
                 {
@@ -79,17 +79,17 @@ public sealed class Socks5ProxyServer : IDisposable
             client.NoDelay = true;
             var networkStream = client.GetStream();
 
-            Socks5AuthenticationType authType;
-            using (var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken))
+            Socks5AuthenticationType authenticationType;
+            using (var handshakeCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken))
             {
-                handshakeCts.CancelAfter(_options.HandshakeTimeout);
-                var handshakeCancellationToken = handshakeCts.Token;
+                handshakeCancellationTokenSource.CancelAfter(_options.HandshakeTimeout);
+                var handshakeCancellationToken = handshakeCancellationTokenSource.Token;
 
-                authType = await NegotiateAuthAsync(networkStream, requireAuth: _options.Username != null, handshakeCancellationToken).ConfigureAwait(false);
-                if (authType == Socks5AuthenticationType.UsernamePassword)
+                authenticationType = await NegotiateAuthenticationAsync(networkStream, requireAuth: _options.Username != null, handshakeCancellationToken).ConfigureAwait(false);
+                if (authenticationType == Socks5AuthenticationType.UsernamePassword)
                 {
-                    var authResult = await HandleUserPassAuthAsync(networkStream, _options.Username!, _options.Password ?? string.Empty, handshakeCancellationToken).ConfigureAwait(false);
-                    if (!authResult)
+                    var authenticationResult = await HandleUsernamePasswordAuthenticationAsync(networkStream, _options.Username!, _options.Password ?? string.Empty, handshakeCancellationToken).ConfigureAwait(false);
+                    if (!authenticationResult)
                     {
                         _logger?.LogWarning("Authentication failed for {ClientEndpoint}", clientEndpointAddress);
                         return;
@@ -111,8 +111,8 @@ public sealed class Socks5ProxyServer : IDisposable
                 }
                 case Socks5Command.UdpAssociate:
                 {
-                    var udpResult = await HandleUdpAssociateCommandAsync(networkStream, client, requestHeader.AddressType, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
-                    await SendReplyAsync(networkStream, Socks5CommandReply.Succeeded, udpResult.BindAddress, udpResult.BindPort, serverCancellationToken).ConfigureAwait(false);
+                    var udpAssociateResult = await HandleUdpAssociateCommandAsync(networkStream, client, requestHeader.AddressType, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
+                    await SendReplyAsync(networkStream, Socks5CommandReply.Succeeded, udpAssociateResult.BindAddress, udpAssociateResult.BindPort, serverCancellationToken).ConfigureAwait(false);
 
                     // Keep the TCP connection open until the client closes it
                     var buffer = new byte[1];
@@ -137,7 +137,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task<Socks5AuthenticationType> NegotiateAuthAsync(NetworkStream stream, bool requireAuth, CancellationToken cancellationToken)
+    private async Task<Socks5AuthenticationType> NegotiateAuthenticationAsync(NetworkStream stream, bool requireAuth, CancellationToken cancellationToken)
     {
         // Read version and number of methods
         var header = new byte[2];
@@ -158,45 +158,45 @@ public sealed class Socks5ProxyServer : IDisposable
         var methods = new byte[numberOfMethods];
         await stream.ReadExactlyAsync(methods, cancellationToken).ConfigureAwait(false);
 
-        var supportsUserPass = methods.Contains((byte)Socks5AuthenticationType.UsernamePassword);
-        var supportsNoAuth = methods.Contains((byte)Socks5AuthenticationType.NoAuthenticationRequired);
+        var supportsUsernamePassword = methods.Contains((byte)Socks5AuthenticationType.UsernamePassword);
+        var supportsNoAuthentication = methods.Contains((byte)Socks5AuthenticationType.NoAuthenticationRequired);
 
-        Socks5AuthenticationType selectedAuthType;
+        Socks5AuthenticationType selectedAuthenticationType;
 
         if (requireAuth)
         {
-            if (!supportsUserPass)
+            if (!supportsUsernamePassword)
             {
                 // Send "no acceptable methods" response
                 await stream.WriteAsync(new byte[] { 5, (byte)Socks5AuthenticationType.ReplyNoAcceptableMethods }, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedAccessException("Client does not support required authentication method");
             }
-            selectedAuthType = Socks5AuthenticationType.UsernamePassword;
+            selectedAuthenticationType = Socks5AuthenticationType.UsernamePassword;
         }
         else
         {
             // Prefer no auth if available, otherwise username/password
-            selectedAuthType = supportsNoAuth ? Socks5AuthenticationType.NoAuthenticationRequired :
-                      supportsUserPass ? Socks5AuthenticationType.UsernamePassword :
+            selectedAuthenticationType = supportsNoAuthentication ? Socks5AuthenticationType.NoAuthenticationRequired :
+                      supportsUsernamePassword ? Socks5AuthenticationType.UsernamePassword :
                       Socks5AuthenticationType.ReplyNoAcceptableMethods;
 
-            if (selectedAuthType == Socks5AuthenticationType.ReplyNoAcceptableMethods)
+            if (selectedAuthenticationType == Socks5AuthenticationType.ReplyNoAcceptableMethods)
             {
-                await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthType }, cancellationToken).ConfigureAwait(false);
+                await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthenticationType }, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedAccessException("No acceptable authentication methods found");
             }
         }
 
         // Send selected method
-        await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthType }, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthenticationType }, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
-        return selectedAuthType;
+        return selectedAuthenticationType;
     }
 
-    private static async Task<bool> HandleUserPassAuthAsync(NetworkStream stream, string expectedUsername, string expectedPassword, CancellationToken cancellationToken)
+    private static async Task<bool> HandleUsernamePasswordAuthenticationAsync(NetworkStream stream, string expectedUsername, string expectedPassword, CancellationToken cancellationToken)
     {
         // Read version
         var version = new byte[1];
@@ -269,10 +269,10 @@ public sealed class Socks5ProxyServer : IDisposable
             remoteClient.NoDelay = true;
 
             // Set connection timeout
-            using (var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            using (var connectionCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                connectionCts.CancelAfter(_options.HostConnectionTimeout);
-                await remoteClient.ConnectAsync(destinationAddress, destinationPort, connectionCts.Token).ConfigureAwait(false);
+                connectionCancellationTokenSource.CancelAfter(_options.HostConnectionTimeout);
+                await remoteClient.ConnectAsync(destinationAddress, destinationPort, connectionCancellationTokenSource.Token).ConfigureAwait(false);
             }
 
             var localEndPoint = (IPEndPoint)remoteClient.Client.LocalEndPoint!;
@@ -315,23 +315,23 @@ public sealed class Socks5ProxyServer : IDisposable
         var proxyUdpClient = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
         var localEndPoint = (IPEndPoint)proxyUdpClient.Client.LocalEndPoint!;
 
-        var relayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var relayCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // Start UDP relay and TCP monitor tasks
-        _ = Task.Run(() => UdpRelayLoopAsync(proxyUdpClient, clientEndpointAddress, relayCts.Token), relayCts.Token);
-        _ = Task.Run(() => MonitorTcpConnectionAsync(controlTcpClient, relayCts, proxyUdpClient), relayCts.Token);
+        _ = Task.Run(() => UdpRelayLoopAsync(proxyUdpClient, clientEndpointAddress, relayCancellationTokenSource.Token), relayCancellationTokenSource.Token);
+        _ = Task.Run(() => MonitorTcpConnectionAsync(controlTcpClient, relayCancellationTokenSource, proxyUdpClient), relayCancellationTokenSource.Token);
 
         _logger?.LogDebug("UDP associate established for {ClientEndpoint} on port {Port}", clientEndpointAddress, localEndPoint.Port);
 
         return new UdpAssociateResult { BindAddress = IPAddress.Any, BindPort = localEndPoint.Port };
     }
 
-    private async Task MonitorTcpConnectionAsync(TcpClient tcpClient, CancellationTokenSource cts, UdpClient udpClient)
+    private async Task MonitorTcpConnectionAsync(TcpClient tcpClient, CancellationTokenSource cancellationTokenSource, UdpClient udpClient)
     {
         try
         {
             var buffer = new byte[1];
-            await tcpClient.GetStream().ReadAsync(buffer, cts.Token).ConfigureAwait(false);
+            await tcpClient.GetStream().ReadAsync(buffer, cancellationTokenSource.Token).ConfigureAwait(false);
         }
         catch
         {
@@ -342,7 +342,7 @@ public sealed class Socks5ProxyServer : IDisposable
             try
             {
                 udpClient.Dispose();
-                await cts.CancelAsync();
+                await cancellationTokenSource.CancelAsync();
             }
             catch (Exception exception)
             {
@@ -369,12 +369,12 @@ public sealed class Socks5ProxyServer : IDisposable
                 {
                     // First packet or packet from client -> parse and forward to destination
                     clientUdpEndpoint ??= sourceEndpoint;
-                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, sourceEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
+                    await HandleUdpPacketFromClientToDestinationAsync(proxyUdpClient, data, sourceEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     // Packet from destination -> wrap and send back to client
-                    await HandleUdpDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
+                    await HandleUdpPacketFromDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, clientEndpointAddress, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -388,7 +388,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleUdpClientToDestinationAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
+    private async Task HandleUdpPacketFromClientToDestinationAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
     {
         if (data.Length < 7 || data[0] != 0 || data[1] != 0 || data[2] != 0)
         {
@@ -443,7 +443,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleUdpDestinationToClientAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint sourceEndpoint, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
+    private async Task HandleUdpPacketFromDestinationToClientAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint sourceEndpoint, IPEndPoint clientEndpoint, string clientDescription, CancellationToken cancellationToken)
     {
         try
         {
@@ -571,6 +571,6 @@ public sealed class Socks5ProxyServer : IDisposable
     public void Dispose()
     {
         Stop();
-        _serverCts.Dispose();
+        _serverCancellationTokenSource.Dispose();
     }
 }

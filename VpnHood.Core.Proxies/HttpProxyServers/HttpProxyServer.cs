@@ -1,7 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace VpnHood.Core.Proxies.HttpProxyServers;
 
@@ -80,18 +79,50 @@ public sealed class HttpProxyServer : IDisposable
             tcpClient.NoDelay = true;
             var networkStream = tcpClient.GetStream();
 
-            var reader = new StreamReader(networkStream, new UTF8Encoding(false), leaveOpen: true);
-            var writer = new StreamWriter(networkStream, new UTF8Encoding(false)) { NewLine = "\r\n", AutoFlush = true };
+            // Perform handshake
+            var handshakeResult = await PerformHandshakeAsync(networkStream, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
+            if (!handshakeResult.IsValid)
+            {
+                return;
+            }
 
-            using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken);
-            handshakeCts.CancelAfter(_options.HandshakeTimeout);
-            var handshakeCancellationToken = handshakeCts.Token;
+            // Handle request based on method
+            if (handshakeResult.Method == "CONNECT")
+            {
+                await HandleConnectRequestAsync(handshakeResult.Target, networkStream, handshakeResult.Writer, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
+            }
+            else
+            {
+                await HandleHttpRequestAsync(handshakeResult.Method, handshakeResult.Target, handshakeResult.Headers, networkStream, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpointAddress);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "Error handling client {ClientEndpoint}", clientEndpointAddress);
+        }
+    }
 
+    private async Task<HttpHandshakeResult> PerformHandshakeAsync(Stream networkStream, CancellationToken serverCancellationToken, string clientEndpointAddress)
+    {
+        var reader = new StreamReader(networkStream, new UTF8Encoding(false), leaveOpen: true);
+        var writer = new StreamWriter(networkStream, new UTF8Encoding(false)) { NewLine = "\r\n", AutoFlush = true };
+
+        using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken);
+        handshakeCts.CancelAfter(_options.HandshakeTimeout);
+        var handshakeCancellationToken = handshakeCts.Token;
+
+        try
+        {
+            // Read request line
             var requestLine = await reader.ReadLineAsync(handshakeCancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(requestLine))
             {
                 _logger?.LogWarning("Empty request line from {ClientEndpoint}", clientEndpointAddress);
-                return;
+                return HttpHandshakeResult.Invalid;
             }
 
             var parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
@@ -99,10 +130,12 @@ public sealed class HttpProxyServer : IDisposable
             {
                 _logger?.LogWarning("Invalid request line from {ClientEndpoint}: {RequestLine}", clientEndpointAddress, requestLine);
                 await WriteErrorResponse(writer, "400 Bad Request", handshakeCancellationToken).ConfigureAwait(false);
-                return;
+                return HttpHandshakeResult.Invalid;
             }
 
             var method = parts[0].ToUpperInvariant();
+            var target = parts[1];
+
             _logger?.LogDebug("Processing {Method} request from {ClientEndpoint}", method, clientEndpointAddress);
 
             // Parse headers
@@ -126,29 +159,22 @@ public sealed class HttpProxyServer : IDisposable
                 {
                     _logger?.LogWarning("Authentication failed for {ClientEndpoint}", clientEndpointAddress);
                     await WriteProxyAuthRequiredAsync(writer, handshakeCancellationToken).ConfigureAwait(false);
-                    return;
+                    return HttpHandshakeResult.Invalid;
                 }
                 _logger?.LogDebug("Authentication successful for {ClientEndpoint}", clientEndpointAddress);
             }
 
-            // Handle request
-            if (method == "CONNECT")
-            {
-                await HandleConnectRequestAsync(parts[1], networkStream, writer, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
-            }
-            else
-            {
-                await HandleHttpRequestAsync(method, parts[1], headers, networkStream, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
-            }
+            return HttpHandshakeResult.Valid(method, target, headers, reader, writer);
         }
         catch (OperationCanceledException)
         {
-            var a = new NullLogger<OperationCanceledException>();
-            _logger?.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpointAddress);
+            _logger?.LogDebug("Handshake cancelled for {ClientEndpoint}", clientEndpointAddress);
+            return HttpHandshakeResult.Invalid;
         }
         catch (Exception exception)
         {
-            _logger?.LogError(exception, "Error handling client {ClientEndpoint}", clientEndpointAddress);
+            _logger?.LogError(exception, "Error during handshake for {ClientEndpoint}", clientEndpointAddress);
+            return HttpHandshakeResult.Invalid;
         }
     }
 
