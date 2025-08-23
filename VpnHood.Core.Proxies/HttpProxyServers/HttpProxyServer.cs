@@ -196,7 +196,7 @@ public sealed class HttpProxyServer : IDisposable
             }
 
             var host = targetUri.Host;
-            var port = targetUri.IsDefaultPort ? (targetUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80) : targetUri.Port;
+            var port = targetUri.IsDefaultPort ? targetUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80 : targetUri.Port;
 
             using var remote = new TcpClient();
             remote.NoDelay = true;

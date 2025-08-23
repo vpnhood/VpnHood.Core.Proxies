@@ -4,7 +4,7 @@ namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 
 public class Socks5ProxyServerOptions
 {
-    public required System.Net.IPEndPoint ListenEndPoint { get; init; }
+    public required IPEndPoint ListenEndPoint { get; init; }
 
     public string? Username { get; init; }
     public string? Password { get; init; }

@@ -1,4 +1,4 @@
-using VpnHood.Core.Proxies.Socks5ProxyClients;
+using VpnHood.Core.Proxies.Socks5Proxy;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 

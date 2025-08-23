@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using VpnHood.Core.Proxies.Socks5Proxy;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyClients;
 
@@ -110,7 +111,7 @@ public class Socks5ProxyClient : IProxyClient
             }
 
             // RFC 1928: if BND.ADDRESS is 0.0.0.0 (or ::), use the proxy's address for sending datagrams
-            var resultAddress = (boundAddress.Equals(IPAddress.Any) || boundAddress.Equals(IPAddress.IPv6Any))
+            var resultAddress = boundAddress.Equals(IPAddress.Any) || boundAddress.Equals(IPAddress.IPv6Any)
                 ? ProxyEndPoint.Address
                 : boundAddress;
 
@@ -264,14 +265,14 @@ public class Socks5ProxyClient : IProxyClient
                 var ipv4Buffer = new byte[6]; // 4 bytes IP + 2 bytes port
                 await stream.ReadExactlyAsync(ipv4Buffer, cancellationToken).ConfigureAwait(false);
                 var ipv4Address = new IPAddress(ipv4Buffer.AsSpan(0, 4));
-                var ipv4Port = (ipv4Buffer[4] << 8) | ipv4Buffer[5];
+                var ipv4Port = ipv4Buffer[4] << 8 | ipv4Buffer[5];
                 return new Socks5Endpoint(null, ipv4Address, ipv4Port);
 
             case Socks5AddressType.IpV6:
                 var ipv6Buffer = new byte[18]; // 16 bytes IP + 2 bytes port
                 await stream.ReadExactlyAsync(ipv6Buffer, cancellationToken).ConfigureAwait(false);
                 var ipv6Address = new IPAddress(ipv6Buffer.AsSpan(0, 16));
-                var ipv6Port = (ipv6Buffer[16] << 8) | ipv6Buffer[17];
+                var ipv6Port = ipv6Buffer[16] << 8 | ipv6Buffer[17];
                 return new Socks5Endpoint(null, ipv6Address, ipv6Port);
 
             case Socks5AddressType.DomainName:
@@ -283,7 +284,7 @@ public class Socks5ProxyClient : IProxyClient
                 await stream.ReadExactlyAsync(domainBuffer, cancellationToken).ConfigureAwait(false);
                 
                 var domain = Encoding.UTF8.GetString(domainBuffer.AsSpan(0, domainLength));
-                var domainPort = (domainBuffer[domainLength] << 8) | domainBuffer[domainLength + 1];
+                var domainPort = domainBuffer[domainLength] << 8 | domainBuffer[domainLength + 1];
                 
                 return new Socks5Endpoint(domain, null, domainPort);
 
@@ -408,7 +409,7 @@ public class Socks5ProxyClient : IProxyClient
                 throw new NotSupportedException($"Unsupported address type in UDP response: {addressType}");
         }
         
-        var port = (datagram[offset] << 8) | datagram[offset + 1];
+        var port = datagram[offset] << 8 | datagram[offset + 1];
         offset += 2;
         
         payload = datagram[offset..];

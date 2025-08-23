@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
-using VpnHood.Core.Proxies.Socks5ProxyClients;
+using VpnHood.Core.Proxies.Socks5Proxy;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 
@@ -427,7 +427,7 @@ public sealed class Socks5ProxyServer : IDisposable
                     return;
             }
 
-            var destinationPort = (data[offset] << 8) | data[offset + 1];
+            var destinationPort = data[offset] << 8 | data[offset + 1];
             offset += 2;
 
             var payload = new byte[data.Length - offset];
@@ -527,13 +527,13 @@ public sealed class Socks5ProxyServer : IDisposable
             {
                 var b = new byte[6];
                 await stream.ReadExactlyAsync(b, ct).ConfigureAwait(false);
-                return new IPEndPoint(new IPAddress(b.AsSpan(0, 4)), (b[4] << 8) | b[5]);
+                return new IPEndPoint(new IPAddress(b.AsSpan(0, 4)), b[4] << 8 | b[5]);
             }
             case Socks5AddressType.IpV6:
             {
                 var b = new byte[18];
                 await stream.ReadExactlyAsync(b, ct).ConfigureAwait(false);
-                return new IPEndPoint(new IPAddress(b.AsSpan(0, 16)), (b[16] << 8) | b[17]);
+                return new IPEndPoint(new IPAddress(b.AsSpan(0, 16)), b[16] << 8 | b[17]);
             }
             case Socks5AddressType.DomainName:
             {
@@ -542,7 +542,7 @@ public sealed class Socks5ProxyServer : IDisposable
                 var len = lenBuf[0];
                 var buf = new byte[len + 2];
                 await stream.ReadExactlyAsync(buf, ct).ConfigureAwait(false);
-                var port = (buf[len] << 8) | buf[len + 1];
+                var port = buf[len] << 8 | buf[len + 1];
                 var host = Encoding.UTF8.GetString(buf.AsSpan(0, len));
                 var ips = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
                 var ip = ips.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? ips[0];

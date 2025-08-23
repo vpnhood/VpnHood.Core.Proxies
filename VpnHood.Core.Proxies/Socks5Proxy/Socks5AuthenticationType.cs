@@ -1,4 +1,4 @@
-namespace VpnHood.Core.Proxies.Socks5ProxyClients;
+namespace VpnHood.Core.Proxies.Socks5Proxy;
 
 public enum Socks5AuthenticationType : byte
 {
