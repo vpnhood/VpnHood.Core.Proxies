@@ -30,7 +30,7 @@ public sealed class HttpsProxyServer : IDisposable
     public void Start()
     {
         if (_isRunning) return;
-        _listener.Start();
+        _listener.Start(_options.Backlog);
         _isRunning = true;
         _logger?.LogInformation("HTTPS proxy server started on {EndPoint}", _options.ListenEndPoint);
     }
@@ -47,25 +47,25 @@ public sealed class HttpsProxyServer : IDisposable
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _serverCts.Token);
-        var ct = linkedCts.Token;
+        var operationCancellationToken = linkedCts.Token;
 
         Start();
         try
         {
-            while (!ct.IsCancellationRequested)
+            while (!operationCancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
-                    _ = Task.Run(() => HandleClientAsync(client, ct), ct);
+                    var client = await _listener.AcceptTcpClientAsync(operationCancellationToken).ConfigureAwait(false);
+                    _ = Task.Run(() => HandleClientAsync(client, operationCancellationToken), operationCancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
                     break;
                 }
-                catch (Exception ex)
+                catch (Exception exception)
                 {
-                    _logger?.LogError(ex, "Error accepting client connection");
+                    _logger?.LogError(exception, "Error accepting client connection");
                 }
             }
         }
@@ -75,140 +75,143 @@ public sealed class HttpsProxyServer : IDisposable
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client, CancellationToken serverCt)
+    private async Task HandleClientAsync(TcpClient client, CancellationToken serverCancellationToken)
     {
-        var clientEndpoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
-        _logger?.LogDebug("Handling HTTPS client connection from {ClientEndpoint}", clientEndpoint);
+        var clientEndpointAddress = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
+        _logger?.LogDebug("Handling HTTPS client connection from {ClientEndpoint}", clientEndpointAddress);
 
-        using var tcp = client;
+        using var tcpClient = client;
         
         try
         {
-            tcp.NoDelay = true;
-            var networkStream = tcp.GetStream();
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
-            cts.CancelAfter(_options.HandshakeTimeout);
-            var ct = cts.Token;
+            tcpClient.NoDelay = true;
+            var networkStream = tcpClient.GetStream();
 
             // Establish TLS connection
             using var sslStream = new SslStream(networkStream, leaveInnerStreamOpen: false);
             
-            _logger?.LogDebug("Establishing TLS connection with {ClientEndpoint}", clientEndpoint);
+            _logger?.LogDebug("Establishing TLS connection with {ClientEndpoint}", clientEndpointAddress);
             
-            await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            using (var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serverCancellationToken))
             {
-                ServerCertificate = _options.ServerCertificate,
-                ClientCertificateRequired = false,
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
-                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
-            }, ct).ConfigureAwait(false);
+                handshakeCts.CancelAfter(_options.HandshakeTimeout);
+                var handshakeCancellationToken = handshakeCts.Token;
 
-            _logger?.LogDebug("TLS connection established with {ClientEndpoint}", clientEndpoint);
-
-            var reader = new StreamReader(sslStream, new UTF8Encoding(false), leaveOpen: true);
-            var writer = new StreamWriter(sslStream, new UTF8Encoding(false)) { NewLine = "\r\n", AutoFlush = true };
-
-            var requestLine = await reader.ReadLineAsync(ct).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(requestLine))
-            {
-                _logger?.LogWarning("Empty request line from {ClientEndpoint}", clientEndpoint);
-                return;
-            }
-
-            var parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2)
-            {
-                _logger?.LogWarning("Invalid request line from {ClientEndpoint}: {RequestLine}", clientEndpoint, requestLine);
-                await WriteErrorResponse(writer, "400 Bad Request", ct).ConfigureAwait(false);
-                return;
-            }
-
-            var method = parts[0].ToUpperInvariant();
-            _logger?.LogDebug("Processing {Method} request from {ClientEndpoint}", method, clientEndpoint);
-
-            // Parse headers
-            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string? line;
-            while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync(ct).ConfigureAwait(false)))
-            {
-                var colonIndex = line.IndexOf(':');
-                if (colonIndex > 0)
+                await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
                 {
-                    var name = line[..colonIndex].Trim();
-                    var value = line[(colonIndex + 1)..].Trim();
-                    headers[name] = value;
-                }
-            }
+                    ServerCertificate = _options.ServerCertificate,
+                    ClientCertificateRequired = false,
+                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+                }, handshakeCancellationToken).ConfigureAwait(false);
 
-            // Check authentication
-            if (_options.Username != null)
-            {
-                if (!ValidateBasicAuth(headers.GetValueOrDefault("Proxy-Authorization"), _options.Username, _options.Password ?? string.Empty))
+                _logger?.LogDebug("TLS connection established with {ClientEndpoint}", clientEndpointAddress);
+
+                var reader = new StreamReader(sslStream, new UTF8Encoding(false), leaveOpen: true);
+                var writer = new StreamWriter(sslStream, new UTF8Encoding(false)) { NewLine = "\r\n", AutoFlush = true };
+
+                var requestLine = await reader.ReadLineAsync(handshakeCancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(requestLine))
                 {
-                    _logger?.LogWarning("Authentication failed for {ClientEndpoint}", clientEndpoint);
-                    await WriteProxyAuthRequiredAsync(writer, ct).ConfigureAwait(false);
+                    _logger?.LogWarning("Empty request line from {ClientEndpoint}", clientEndpointAddress);
                     return;
                 }
-                _logger?.LogDebug("Authentication successful for {ClientEndpoint}", clientEndpoint);
-            }
 
-            // Handle CONNECT request (HTTPS proxy typically only supports CONNECT)
-            if (method == "CONNECT")
-            {
-                await HandleConnectRequest(parts[1], sslStream, writer, serverCt, clientEndpoint).ConfigureAwait(false);
-            }
-            else
-            {
-                _logger?.LogWarning("Unsupported method {Method} from {ClientEndpoint}", method, clientEndpoint);
-                await WriteErrorResponse(writer, "405 Method Not Allowed", ct).ConfigureAwait(false);
+                var parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    _logger?.LogWarning("Invalid request line from {ClientEndpoint}: {RequestLine}", clientEndpointAddress, requestLine);
+                    await WriteErrorResponse(writer, "400 Bad Request", handshakeCancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                var method = parts[0].ToUpperInvariant();
+                _logger?.LogDebug("Processing {Method} request from {ClientEndpoint}", method, clientEndpointAddress);
+
+                // Parse headers
+                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                string? line;
+                while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync(handshakeCancellationToken).ConfigureAwait(false)))
+                {
+                    var colonIndex = line.IndexOf(':');
+                    if (colonIndex > 0)
+                    {
+                        var name = line[..colonIndex].Trim();
+                        var value = line[(colonIndex + 1)..].Trim();
+                        headers[name] = value;
+                    }
+                }
+
+                // Check authentication
+                if (_options.Username != null)
+                {
+                    if (!ValidateBasicAuth(headers.GetValueOrDefault("Proxy-Authorization"), _options.Username, _options.Password ?? string.Empty))
+                    {
+                        _logger?.LogWarning("Authentication failed for {ClientEndpoint}", clientEndpointAddress);
+                        await WriteProxyAuthRequiredAsync(writer, handshakeCancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+                    _logger?.LogDebug("Authentication successful for {ClientEndpoint}", clientEndpointAddress);
+                }
+
+                // Handle CONNECT request (HTTPS proxy typically only supports CONNECT)
+                if (method == "CONNECT")
+                {
+                    await HandleConnectRequestAsync(parts[1], sslStream, writer, serverCancellationToken, clientEndpointAddress).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger?.LogWarning("Unsupported method {Method} from {ClientEndpoint}", method, clientEndpointAddress);
+                    await WriteErrorResponse(writer, "405 Method Not Allowed", handshakeCancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpoint);
+            _logger?.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpointAddress);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger?.LogError(ex, "Error handling HTTPS client {ClientEndpoint}", clientEndpoint);
+            _logger?.LogError(exception, "Error handling HTTPS client {ClientEndpoint}", clientEndpointAddress);
         }
     }
 
-    private async Task HandleConnectRequest(string authority, SslStream clientStream, StreamWriter writer, CancellationToken ct, string clientEndpoint)
+    private async Task HandleConnectRequestAsync(string authority, SslStream clientStream, StreamWriter writer, CancellationToken cancellationToken, string clientEndpointAddress)
     {
         try
         {
             var parts = authority.Split(':');
-            var host = parts[0];
-            var port = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : 443;
+            var hostname = parts[0];
+            var port = parts.Length > 1 && int.TryParse(parts[1], out var parsedPort) ? parsedPort : 443;
 
-            _logger?.LogDebug("Connecting to {Host}:{Port} for {ClientEndpoint}", host, port, clientEndpoint);
+            _logger?.LogDebug("Connecting to {Host}:{Port} for {ClientEndpoint}", hostname, port, clientEndpointAddress);
 
-            using var remote = new TcpClient();
-            remote.NoDelay = true;
+            using var remoteClient = new TcpClient();
+            remoteClient.NoDelay = true;
             
             // Set connection timeout
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(30));
-            
-            await remote.ConnectAsync(host, port, connectCts.Token).ConfigureAwait(false);
+            using (var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                connectionCts.CancelAfter(_options.HostConnectionTimeout);
+                await remoteClient.ConnectAsync(hostname, port, connectionCts.Token).ConfigureAwait(false);
+            }
             
             await writer.WriteLineAsync("HTTP/1.1 200 Connection Established").ConfigureAwait(false);
             await writer.WriteLineAsync().ConfigureAwait(false);
-            await writer.FlushAsync(ct).ConfigureAwait(false);
+            await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
 
-            _logger?.LogDebug("Tunneling established between {ClientEndpoint} and {Host}:{Port}", clientEndpoint, host, port);
+            _logger?.LogDebug("Tunneling established between {ClientEndpoint} and {Host}:{Port}", clientEndpointAddress, hostname, port);
 
-            await PumpStreamsAsync(clientStream, remote.GetStream(), ct).ConfigureAwait(false);
+            await PumpStreamsAsync(clientStream, remoteClient.GetStream(), cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger?.LogError(ex, "Failed to establish CONNECT tunnel for {ClientEndpoint} to {Authority}", clientEndpoint, authority);
-            await WriteErrorResponse(writer, "502 Bad Gateway", ct).ConfigureAwait(false);
+            _logger?.LogError(exception, "Failed to establish CONNECT tunnel for {ClientEndpoint} to {Authority}", clientEndpointAddress, authority);
+            await WriteErrorResponse(writer, "502 Bad Gateway", cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static bool ValidateBasicAuth(string? proxyAuthHeader, string expectedUser, string expectedPass)
+    private static bool ValidateBasicAuth(string? proxyAuthHeader, string expectedUsername, string expectedPassword)
     {
         if (string.IsNullOrEmpty(proxyAuthHeader)) return false;
         
@@ -216,18 +219,18 @@ public sealed class HttpsProxyServer : IDisposable
         if (!proxyAuthHeader.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return false;
             
-        var b64 = proxyAuthHeader[prefix.Length..].Trim();
+        var base64Credentials = proxyAuthHeader[prefix.Length..].Trim();
         try
         {
-            var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
-            var colonIndex = decoded.IndexOf(':');
+            var decodedCredentials = Encoding.UTF8.GetString(Convert.FromBase64String(base64Credentials));
+            var colonIndex = decodedCredentials.IndexOf(':');
             if (colonIndex < 0) return false;
             
-            var username = decoded[..colonIndex];
-            var password = decoded[(colonIndex + 1)..];
+            var username = decodedCredentials[..colonIndex];
+            var password = decodedCredentials[(colonIndex + 1)..];
             
-            return string.Equals(username, expectedUser, StringComparison.Ordinal) && 
-                   string.Equals(password, expectedPass, StringComparison.Ordinal);
+            return string.Equals(username, expectedUsername, StringComparison.Ordinal) && 
+                   string.Equals(password, expectedPassword, StringComparison.Ordinal);
         }
         catch
         {
@@ -235,32 +238,32 @@ public sealed class HttpsProxyServer : IDisposable
         }
     }
 
-    private static async Task WriteProxyAuthRequiredAsync(StreamWriter writer, CancellationToken ct)
+    private static async Task WriteProxyAuthRequiredAsync(StreamWriter writer, CancellationToken cancellationToken)
     {
         await writer.WriteLineAsync("HTTP/1.1 407 Proxy Authentication Required").ConfigureAwait(false);
         await writer.WriteLineAsync("Proxy-Authenticate: Basic realm=\"Proxy\"").ConfigureAwait(false);
         await writer.WriteLineAsync("Connection: close").ConfigureAwait(false);
         await writer.WriteLineAsync("Content-Length: 0").ConfigureAwait(false);
         await writer.WriteLineAsync().ConfigureAwait(false);
-        await writer.FlushAsync(ct).ConfigureAwait(false);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task WriteErrorResponse(StreamWriter writer, string status, CancellationToken ct)
+    private static async Task WriteErrorResponse(StreamWriter writer, string status, CancellationToken cancellationToken)
     {
         await writer.WriteLineAsync($"HTTP/1.1 {status}").ConfigureAwait(false);
         await writer.WriteLineAsync("Connection: close").ConfigureAwait(false);
         await writer.WriteLineAsync("Content-Length: 0").ConfigureAwait(false);
         await writer.WriteLineAsync().ConfigureAwait(false);
-        await writer.FlushAsync(ct).ConfigureAwait(false);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task PumpStreamsAsync(Stream source, Stream destination, CancellationToken ct)
+    private static async Task PumpStreamsAsync(Stream sourceStream, Stream destinationStream, CancellationToken cancellationToken)
     {
         const int bufferSize = 4096;
         var tasks = new[]
         {
-            CopyStreamAsync(source, destination, bufferSize, ct),
-            CopyStreamAsync(destination, source, bufferSize, ct)
+            CopyStreamAsync(sourceStream, destinationStream, bufferSize, cancellationToken),
+            CopyStreamAsync(destinationStream, sourceStream, bufferSize, cancellationToken)
         };
 
         try
@@ -274,29 +277,29 @@ public sealed class HttpsProxyServer : IDisposable
         finally
         {
             // Cancel remaining operations
-            await Task.WhenAll(tasks.Select(async t =>
+            await Task.WhenAll(tasks.Select(async task =>
             {
-                try { await t.ConfigureAwait(false); }
+                try { await task.ConfigureAwait(false); }
                 catch { /* Ignore exceptions during cleanup */ }
             })).ConfigureAwait(false);
         }
     }
 
-    private static async Task CopyStreamAsync(Stream source, Stream destination, int bufferSize, CancellationToken ct)
+    private static async Task CopyStreamAsync(Stream sourceStream, Stream destinationStream, int bufferSize, CancellationToken cancellationToken)
     {
         var buffer = new byte[bufferSize];
         try
         {
-            while (!ct.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                var bytesRead = await source.ReadAsync(buffer, ct).ConfigureAwait(false);
+                var bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                 if (bytesRead == 0) break;
                 
-                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), ct).ConfigureAwait(false);
-                await destination.FlushAsync(ct).ConfigureAwait(false);
+                await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+                await destinationStream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception) when (ct.IsCancellationRequested)
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             // Expected during cancellation
         }
