@@ -277,7 +277,7 @@ public class Socks5ProxyClientTests
         // Send UDP packet through proxy - this should not throw an exception
         await udpClient.SendAsync(requestBuffer.AsMemory(0, requestLength).ToArray(), proxyUdpEndpoint);
         
-        // If we get here without exception, the send succeeded
+        // If we get here without exception, to send succeeded
         Assert.IsTrue(true, "UDP packet was sent successfully through SOCKS5 proxy");
     }
 }
