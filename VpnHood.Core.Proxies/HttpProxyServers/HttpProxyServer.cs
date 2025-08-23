@@ -41,13 +41,21 @@ public sealed class HttpProxyServer(HttpProxyServerOptions options)
             if (parts.Length < 2) return;
             var method = parts[0].ToUpperInvariant();
 
-            string? hostHeader = null; string? line;
+            string? hostHeader = null; string? proxyAuthHeader = null; string? line;
             while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync(ct).ConfigureAwait(false))) {
                 var idx = line.IndexOf(':');
                 if (idx > 0) {
                     var name = line.Substring(0, idx).Trim();
                     var value = line.Substring(idx + 1).Trim();
                     if (name.Equals("Host", StringComparison.OrdinalIgnoreCase)) hostHeader = value;
+                    else if (name.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase)) proxyAuthHeader = value;
+                }
+            }
+
+            if (options.Username != null) {
+                if (!ValidateBasicAuth(proxyAuthHeader, options.Username, options.Password ?? string.Empty)) {
+                    await WriteProxyAuthRequiredAsync(writer, ct).ConfigureAwait(false);
+                    return;
                 }
             }
 
@@ -83,6 +91,36 @@ public sealed class HttpProxyServer(HttpProxyServerOptions options)
             }
         }
         catch { }
+    }
+
+    private static bool ValidateBasicAuth(string? proxyAuthHeader, string expectedUser, string expectedPass)
+    {
+        if (string.IsNullOrEmpty(proxyAuthHeader)) return false;
+        // expected format: "Basic base64(username:password)"
+        const string prefix = "Basic ";
+        if (!proxyAuthHeader.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var b64 = proxyAuthHeader[prefix.Length..].Trim();
+        try {
+            var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+            var sep = decoded.IndexOf(':');
+            if (sep < 0) return false;
+            var u = decoded[..sep];
+            var p = decoded[(sep + 1)..];
+            return string.Equals(u, expectedUser, StringComparison.Ordinal) && string.Equals(p, expectedPass, StringComparison.Ordinal);
+        }
+        catch {
+            return false;
+        }
+    }
+
+    private static async Task WriteProxyAuthRequiredAsync(StreamWriter writer, CancellationToken ct)
+    {
+        await writer.WriteLineAsync("HTTP/1.1 407 Proxy Authentication Required").ConfigureAwait(false);
+        await writer.WriteLineAsync("Proxy-Authenticate: Basic realm=\"Proxy\"").ConfigureAwait(false);
+        await writer.WriteLineAsync("Connection: close").ConfigureAwait(false);
+        await writer.WriteLineAsync().ConfigureAwait(false);
+        await writer.FlushAsync().ConfigureAwait(false);
     }
 
     private static async Task PumpAsync(Stream a, Stream b, CancellationToken ct)
