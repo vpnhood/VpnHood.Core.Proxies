@@ -342,7 +342,7 @@ public sealed class Socks5ProxyServer : IDisposable
         Socks5AddressType addressType, IPEndPoint clientEndpoint, CancellationToken cancellationToken)
     {
         // Read the client's UDP endpoint (maybe ignored)
-        var a = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
+        _ = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
 
         // Create UDP socket for communicating with the SOCKS5 client
         var proxyUdpClient = new UdpClient(new IPEndPoint(IPAddress.Any, 0));

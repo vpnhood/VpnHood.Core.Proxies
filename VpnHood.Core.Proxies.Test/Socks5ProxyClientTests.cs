@@ -252,6 +252,7 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_UdpAssociate_SendPacket_Test()
     {
+        using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
         using var proxyInstance = await StartSocks5ProxyAsync(); // No auth required
 
         var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
@@ -268,16 +269,22 @@ public class Socks5ProxyClientTests
         // Give some time for the UDP relay to be established
         await Task.Delay(100);
 
-        // Create a dummy destination (we don't care if it responds, just testing packet sending)
-        var dummyDestination = new IPEndPoint(IPAddress.Loopback, 12345);
+        // Create SOCKS5 UDP request to the echo server
         var testMessage = "Hello UDP test!"u8.ToArray();
         var requestBuffer = new byte[1024];
-        var requestLength = Socks5ProxyClient.WriteUdpRequest(requestBuffer, dummyDestination, testMessage);
+        var requestLength = Socks5ProxyClient.WriteUdpRequest(requestBuffer, udpEcho.EndPoint, testMessage);
         
-        // Send UDP packet through proxy - this should not throw an exception
+        // Send UDP packet through proxy
         await udpClient.SendAsync(requestBuffer.AsMemory(0, requestLength).ToArray(), proxyUdpEndpoint);
         
-        // If we get here without exception, to send succeeded
-        Assert.IsTrue(true, "UDP packet was sent successfully through SOCKS5 proxy");
+        // Receive echoed response via proxy and validate
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var response = await udpClient.ReceiveAsync(timeoutCts.Token);
+        var responseEndpoint = Socks5ProxyClient.ParseUdpResponse(response.Buffer, out var responsePayload);
+        
+        Assert.IsNotNull(responseEndpoint.Address);
+        Assert.AreEqual(udpEcho.EndPoint.Address, responseEndpoint.Address);
+        Assert.AreEqual(udpEcho.EndPoint.Port, responseEndpoint.Port);
+        CollectionAssert.AreEqual(testMessage, responsePayload.ToArray());
     }
 }
