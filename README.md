@@ -6,25 +6,21 @@ Cross-platform proxy servers and clients for .NET 8:
 - HTTP proxy (plain)
 - HTTPS proxy (CONNECT over TLS)
 
-Built with Microsoft.Extensions.Logging, cancellation support, timeouts, and careful memory usage.
-
-- Target framework: .NET 8
-- Language version: C# 12/13 features enabled by SDK
-
 ## Features
 - SOCKS5 server with optional username/password auth
 - SOCKS5 client with TCP CONNECT and UDP ASSOCIATE helpers
 - HTTP and HTTPS proxy servers with optional Basic auth
 - Sensible defaults for timeouts and backlog
 - Cancellation-aware async I/O
-- Low-allocation hot paths (ArrayPool/MemoryPool, spans)
+- Low-allocation hot paths (MemoryPool, spans)
 
 ## Getting started
-Add the VpnHood.Core.Proxies project to your solution and reference it from your app (or clone and use directly).
+Add the VpnHood.Core.Proxies project to your solution
 
 Samples and CLI utilities are available in the repo; see:
 - Server sample app: https://github.com/vpnhood/VpnHood.Core.Proxies/tree/main/VpnHood.Core.Proxies.ServerApp
 - Client sample app: https://github.com/vpnhood/VpnHood.Core.Proxies/tree/main/VpnHood.Core.Proxies.ClientApp
+See sample usage [USAGE]
 
 ## Usage snippets
 
@@ -107,7 +103,7 @@ using var controlTcp = new TcpClient();
 // Create UDP associate and get proxy UDP endpoint
 var udpProxyEndpoint = await socksClient.CreateUdpAssociateAsync(controlTcp, CancellationToken.None);
 
-// Prepare a UDP packet to destination using the helper
+// Prepare a UDP packet to the destination using the helper
 var destination = new IPEndPoint(IPAddress.Parse("1.1.1.1"), 53); // example: DNS
 Span<byte> payload = stackalloc byte[] { /* your UDP payload */ };
 Span<byte> buffer = stackalloc byte[3 + 1 + 4 + 2 + 512]; // RSV/FRAG + ATYP + IPv4 + port + payload
@@ -121,6 +117,3 @@ For complete runnable examples and CLI usage, see the sample apps linked above.
 
 ## Tests
 Basic integration tests are under VpnHood.Core.Proxies.Test.
-
-## License
-MIT (see LICENSE).
