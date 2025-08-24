@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using VpnHood.Core.Proxies.Socks5Proxy;
+using System.Buffers;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 
@@ -75,6 +76,7 @@ public sealed class Socks5ProxyServer : IDisposable
 
         try
         {
+            using var clientToDispose = client; // ensure disposal on all paths
             client.NoDelay = true;
             var networkStream = client.GetStream();
 
@@ -96,10 +98,10 @@ public sealed class Socks5ProxyServer : IDisposable
                     }
                 case Socks5Command.UdpAssociate:
                     {
-                        var udpResult = await HandleUdpAssociateCommandAsync(networkStream, client, 
+                        var udpResult = await HandleUdpAssociateCommandAsync(networkStream, client,
                             handshakeResult.RequestHeader.AddressType, clientEndpoint, cancellationToken).ConfigureAwait(false);
-                        
-                        await SendReplyAsync(networkStream, Socks5CommandReply.Succeeded, udpResult.BindAddress, 
+
+                        await SendReplyAsync(networkStream, Socks5CommandReply.Succeeded, udpResult.BindAddress,
                             udpResult.BindPort, cancellationToken).ConfigureAwait(false);
 
                         // Keep the TCP connection open until the client closes it
@@ -201,7 +203,6 @@ public sealed class Socks5ProxyServer : IDisposable
             {
                 // Send "no acceptable methods" response
                 await stream.WriteAsync(new byte[] { 5, (byte)Socks5AuthenticationType.ReplyNoAcceptableMethods }, cancellationToken).ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedAccessException("Client does not support required authentication method");
             }
             selectedAuthType = Socks5AuthenticationType.UsernamePassword;
@@ -216,14 +217,12 @@ public sealed class Socks5ProxyServer : IDisposable
             if (selectedAuthType == Socks5AuthenticationType.ReplyNoAcceptableMethods)
             {
                 await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthType }, cancellationToken).ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedAccessException("No acceptable authentication methods found");
             }
         }
 
         // Send selected method
         await stream.WriteAsync(new byte[] { 5, (byte)selectedAuthType }, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         return selectedAuthType;
     }
@@ -237,7 +236,6 @@ public sealed class Socks5ProxyServer : IDisposable
         if (version[0] != 1)
         {
             await stream.WriteAsync(new byte[] { 1, 0xFF }, cancellationToken).ConfigureAwait(false);
-            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
 
@@ -268,7 +266,6 @@ public sealed class Socks5ProxyServer : IDisposable
 
         // Send response
         await stream.WriteAsync(new byte[] { 1, (byte)(isValid ? 0 : 0xFF) }, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         return isValid;
     }
@@ -381,6 +378,10 @@ public sealed class Socks5ProxyServer : IDisposable
             {
                 _logger?.LogError(exception, "Error during UDP associate cleanup");
             }
+            finally
+            {
+                cts.Dispose();
+            }
         }
     }
 
@@ -466,10 +467,8 @@ public sealed class Socks5ProxyServer : IDisposable
             var destinationPort = data[offset] << 8 | data[offset + 1];
             offset += 2;
 
-            var payload = new byte[data.Length - offset];
-            Array.Copy(data, offset, payload, 0, payload.Length);
-
-            _ = await proxyUdpClient.SendAsync(payload, new IPEndPoint(destinationAddress, destinationPort), cancellationToken).ConfigureAwait(false);
+            // Avoid extra allocation/copy by sending a slice of the original buffer
+            _ = await proxyUdpClient.SendAsync(data.AsMemory(offset), new IPEndPoint(destinationAddress, destinationPort), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -477,21 +476,63 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleUdpDestinationToClientAsync(UdpClient proxyUdpClient, byte[] data, IPEndPoint sourceEndpoint, IPEndPoint clientEndpoint, IPEndPoint clientUdpEndpoint,
+    // Pseudocode:
+    // - Compute address bytes, header length, total length
+    // - Rent Memory<byte> from MemoryPool for total length
+    // - Fill SOCKS5 UDP header into span
+    // - Copy payload into span after header
+    // - Send ReadOnlyMemory<byte> via UdpClient.SendAsync
+    // - Dispose memory owner via using to return buffer to pool
+    private async Task HandleUdpDestinationToClientAsync(
+        UdpClient proxyUdpClient,
+        byte[] data,
+        IPEndPoint sourceEndpoint,
+        IPEndPoint clientEndpoint,
+        IPEndPoint clientUdpEndpoint,
         CancellationToken cancellationToken)
     {
         try
         {
-            // Wrap response in SOCKS5 UDP format and send back to client
-            var response = BuildUdpResponse(sourceEndpoint, data);
-            await proxyUdpClient.SendAsync(response, clientEndpoint, cancellationToken).ConfigureAwait(false);
+            var addressBytes = sourceEndpoint.Address.GetAddressBytes();
+            var headerLength = 3 + 1 + addressBytes.Length + 2;
+            var totalLength = headerLength + data.Length;
 
-            _logger?.LogDebug("Relayed UDP response from {Source} to {ClientEndpoint}, payload size: {Size}, response size: {ResponseSize}",
-                sourceEndpoint, clientUdpEndpoint, data.Length, response.Length);
+            using var owner = MemoryPool<byte>.Shared.Rent(totalLength);
+            var mem = owner.Memory[..totalLength];
+            var span = mem.Span;
+
+            // RSV + FRAG
+            span[0] = 0;
+            span[1] = 0;
+            span[2] = 0;
+
+            // Address type
+            span[3] = (byte)(sourceEndpoint.Address.AddressFamily == AddressFamily.InterNetworkV6
+                ? Socks5AddressType.IpV6
+                : Socks5AddressType.IpV4);
+
+            var offset = 4;
+            addressBytes.CopyTo(span[offset..]);
+            offset += addressBytes.Length;
+
+            // Port
+            span[offset++] = (byte)(sourceEndpoint.Port >> 8);
+            span[offset] = (byte)(sourceEndpoint.Port & 0xFF);
+
+            // Payload
+            data.AsSpan().CopyTo(span[headerLength..]);
+
+            await proxyUdpClient.SendAsync(mem, clientEndpoint, cancellationToken).ConfigureAwait(false);
+
+            _logger?.LogDebug(
+                "Relayed UDP response from {Source} to {ClientEndpoint}, payload size: {Size}, response size: {ResponseSize}",
+                sourceEndpoint, clientUdpEndpoint, data.Length, totalLength);
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning(exception, "Failed to relay UDP response from {Source} to client {ClientEndpoint}", sourceEndpoint, clientUdpEndpoint);
+            _logger?.LogWarning(exception,
+                "Failed to relay UDP response from {Source} to client {ClientEndpoint}",
+                sourceEndpoint, clientUdpEndpoint);
         }
     }
 
@@ -530,30 +571,13 @@ public sealed class Socks5ProxyServer : IDisposable
                 if (bytesRead == 0) break;
 
                 await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
-                await destinationStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                // NetworkStream.FlushAsync is a no-op; avoid extra calls to reduce overhead
             }
         }
         catch when (cancellationToken.IsCancellationRequested)
         {
             // Expected during cancellation
         }
-    }
-
-    private static byte[] BuildUdpResponse(IPEndPoint sourceEndpoint, byte[] payload)
-    {
-        var addressBytes = sourceEndpoint.Address.GetAddressBytes();
-        var header = new byte[3 + 1 + addressBytes.Length + 2];
-        header[0] = 0; header[1] = 0; header[2] = 0;
-        header[3] = (byte)(sourceEndpoint.Address.AddressFamily == AddressFamily.InterNetworkV6 ? Socks5AddressType.IpV6 : Socks5AddressType.IpV4);
-        var offset = 4;
-        addressBytes.CopyTo(header, offset);
-        offset += addressBytes.Length;
-        header[offset++] = (byte)(sourceEndpoint.Port >> 8);
-        header[offset] = (byte)(sourceEndpoint.Port & 0xFF);
-        var response = new byte[header.Length + payload.Length];
-        Buffer.BlockCopy(header, 0, response, 0, header.Length);
-        Buffer.BlockCopy(payload, 0, response, header.Length, payload.Length);
-        return response;
     }
 
     private static async Task<IPEndPoint> ReadDestinationAsync(NetworkStream stream, Socks5AddressType addressType, CancellationToken cancellationToken)
@@ -577,13 +601,25 @@ public sealed class Socks5ProxyServer : IDisposable
                     var lengthBuffer = new byte[1];
                     await stream.ReadExactlyAsync(lengthBuffer, cancellationToken).ConfigureAwait(false);
                     var length = lengthBuffer[0];
-                    var buffer = new byte[length + 2];
-                    await stream.ReadExactlyAsync(buffer, cancellationToken).ConfigureAwait(false);
-                    var port = buffer[length] << 8 | buffer[length + 1];
-                    var hostname = Encoding.UTF8.GetString(buffer.AsSpan(0, length));
-                    var ipAddresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken).ConfigureAwait(false);
-                    var ipAddress = ipAddresses.FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetwork) ?? ipAddresses[0];
-                    return new IPEndPoint(ipAddress, port);
+
+                    byte[]? rented = null;
+                    try
+                    {
+                        rented = ArrayPool<byte>.Shared.Rent(length + 2);
+                        var mem = rented.AsMemory(0, length + 2);
+                        await stream.ReadExactlyAsync(mem, cancellationToken).ConfigureAwait(false);
+                        var span = mem.Span;
+                        var port = span[length] << 8 | span[length + 1];
+                        var hostname = Encoding.UTF8.GetString(span[..length]);
+                        var ipAddresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken).ConfigureAwait(false);
+                        var ipAddress = ipAddresses.FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetwork) ?? ipAddresses[0];
+                        return new IPEndPoint(ipAddress, port);
+                    }
+                    finally
+                    {
+                        if (rented is not null)
+                            ArrayPool<byte>.Shared.Return(rented);
+                    }
                 }
             default:
                 throw new NotSupportedException($"Unsupported address type: {addressType}");
@@ -594,13 +630,22 @@ public sealed class Socks5ProxyServer : IDisposable
     {
         var addressBytes = bindAddress.GetAddressBytes();
         var addressType = bindAddress.AddressFamily == AddressFamily.InterNetworkV6 ? Socks5AddressType.IpV6 : Socks5AddressType.IpV4;
-        var response = new byte[4 + addressBytes.Length + 2];
-        response[0] = 5; response[1] = (byte)reply; response[2] = 0; response[3] = (byte)addressType;
-        addressBytes.CopyTo(response, 4);
-        response[4 + addressBytes.Length] = (byte)(bindPort >> 8);
-        response[4 + addressBytes.Length + 1] = (byte)(bindPort & 0xFF);
-        await stream.WriteAsync(response, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        var length = 4 + addressBytes.Length + 2;
+        byte[]? response = null;
+        try
+        {
+            response = ArrayPool<byte>.Shared.Rent(length);
+            response[0] = 5; response[1] = (byte)reply; response[2] = 0; response[3] = (byte)addressType;
+            addressBytes.CopyTo(response, 4);
+            response[4 + addressBytes.Length] = (byte)(bindPort >> 8);
+            response[4 + addressBytes.Length + 1] = (byte)(bindPort & 0xFF);
+            await stream.WriteAsync(response.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (response is not null)
+                ArrayPool<byte>.Shared.Return(response);
+        }
     }
 
     public void Dispose()
