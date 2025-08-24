@@ -1,6 +1,6 @@
 # VpnHood.Core.Proxies
 
-Cross-platform proxy servers and clients for .NET 8:
+Cross-platform proxy servers and clients for .NET:
 - SOCKS5 (TCP CONNECT and UDP ASSOCIATE)
 - SOCKS4 (client)
 - HTTP proxy (plain)
@@ -18,9 +18,7 @@ Cross-platform proxy servers and clients for .NET 8:
 Add the VpnHood.Core.Proxies project to your solution
 
 Samples and CLI utilities are available in the repo; see:
-- Server sample app: https://github.com/vpnhood/VpnHood.Core.Proxies/tree/main/VpnHood.Core.Proxies.ServerApp
-- Client sample app: https://github.com/vpnhood/VpnHood.Core.Proxies/tree/main/VpnHood.Core.Proxies.ClientApp
-See sample usage [USAGE]
+[CLI Usage](https://github.com/vpnhood/VpnHood.Core.Proxies/blob/main/USAGE.md)
 
 ## Usage snippets
 
