@@ -341,7 +341,7 @@ public sealed class Socks5ProxyServer : IDisposable
     private async Task<UdpAssociateResult> HandleUdpAssociateCommandAsync(NetworkStream stream, TcpClient controlTcpClient,
         Socks5AddressType addressType, IPEndPoint clientEndpoint, CancellationToken cancellationToken)
     {
-        // Read the client's UDP endpoint (maybe ignored)
+        // Read the client's UDP endpoint (maybe ignored) because client may be behind NAT
         _ = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
 
         // Create UDP socket for communicating with the SOCKS5 client
