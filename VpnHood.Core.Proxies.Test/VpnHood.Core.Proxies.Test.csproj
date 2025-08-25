@@ -31,4 +31,23 @@
 	  <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.8" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Update="MSTest.Analyzers" Version="3.10.2">
+	    <PrivateAssets>all</PrivateAssets>
+	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	  </PackageReference>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Update="MSTest.TestAdapter" Version="3.10.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Update="MSTest.TestFramework" Version="3.10.2" />
+	</ItemGroup>
+
 </Project>
