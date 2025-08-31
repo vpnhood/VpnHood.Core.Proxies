@@ -41,7 +41,7 @@ public class HttpProxyClientTests
 
         try
         {
-            var clientOptions = new HttpProxyOptions
+            var clientOptions = new HttpProxyClientOptions
             {
                 ProxyEndPoint = proxyEp,
                 Username = "u",
@@ -76,7 +76,7 @@ public class HttpProxyClientTests
 
         try
         {
-            var clientOptions = new HttpProxyOptions
+            var clientOptions = new HttpProxyClientOptions
             {
                 ProxyEndPoint = proxyEp,
                 UseTls = false,
@@ -105,7 +105,7 @@ public class HttpProxyClientTests
 
         try
         {
-            var clientOptions = new HttpProxyOptions
+            var clientOptions = new HttpProxyClientOptions
             {
                 ProxyEndPoint = proxyEp,
                 UseTls = false,
@@ -138,7 +138,7 @@ public class HttpProxyClientTests
 
         try
         {
-            var clientOptions = new HttpProxyOptions
+            var clientOptions = new HttpProxyClientOptions
             {
                 ProxyEndPoint = proxyEp,
                 Username = "wrong",

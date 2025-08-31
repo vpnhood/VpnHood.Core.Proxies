@@ -9,10 +9,10 @@ namespace VpnHood.Core.Proxies.HttpProxyClients;
 
 public class HttpProxyClient : IProxyClient
 {
-    private readonly HttpProxyOptions _options;
+    private readonly HttpProxyClientOptions _options;
     private readonly ILogger<HttpProxyClient>? _logger;
 
-    public HttpProxyClient(HttpProxyOptions options, ILogger<HttpProxyClient>? logger = null)
+    public HttpProxyClient(HttpProxyClientOptions options, ILogger<HttpProxyClient>? logger = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger;

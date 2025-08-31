@@ -109,7 +109,7 @@ internal static class Program
         var data = options.GetValueOrDefault("data", "GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
 
         var proxyEp = new IPEndPoint(IPAddress.Parse(proxyHost), proxyPort);
-        var clientOptions = new HttpProxyOptions
+        var clientOptions = new HttpProxyClientOptions
         {
             ProxyEndPoint = proxyEp,
             Username = username,
@@ -140,7 +140,7 @@ internal static class Program
         var allowInvalidCert = options.ContainsKey("allow-invalid-cert");
 
         var proxyEp = new IPEndPoint(IPAddress.Parse(proxyHost), proxyPort);
-        var clientOptions = new HttpProxyOptions
+        var clientOptions = new HttpProxyClientOptions
         {
             ProxyEndPoint = proxyEp,
             ProxyHost = proxyHost,
