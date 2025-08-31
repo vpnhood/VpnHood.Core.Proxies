@@ -13,10 +13,11 @@ public class HttpProxyClient(
     ILogger<HttpProxyClient>? logger = null)
     : IProxyClient
 {
-    private readonly HttpProxyClientOptions _options = options ?? throw new ArgumentNullException(nameof(options));
-
+    
     public async Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
         => await ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken).ConfigureAwait(false);
+
+    public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
@@ -24,21 +25,21 @@ public class HttpProxyClient(
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
 
-        logger?.LogDebug("Connecting to {Host}:{Port} through HTTP proxy {ProxyEndPoint}", host, port, _options.ProxyEndPoint);
+        logger?.LogDebug("Connecting to {Host}:{Port} through HTTP proxy {ProxyEndPoint}", host, port, options.ProxyEndPoint);
 
         try {
             if (!tcpClient.Connected) {
                 tcpClient.NoDelay = true;
-                await tcpClient.ConnectAsync(_options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+                await tcpClient.ConnectAsync(options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
             }
 
             Stream stream = tcpClient.GetStream();
 
-            if (_options.UseTls) {
+            if (options.UseTls) {
                 logger?.LogDebug("Establishing TLS connection to proxy");
                 var ssl = new SslStream(stream, leaveInnerStreamOpen: true, UserCertificateValidationCallback);
                 
-                var targetHost = _options.ProxyHost ?? _options.ProxyEndPoint.Address.ToString();
+                var targetHost = options.ProxyHost ?? options.ProxyEndPoint.Address.ToString();
                 await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
                     TargetHost = targetHost,
                     EnabledSslProtocols = SslProtocols.None,
@@ -67,12 +68,12 @@ public class HttpProxyClient(
         ArgumentNullException.ThrowIfNull(tcpClient);
         try {
             tcpClient.NoDelay = true;
-            await tcpClient.ConnectAsync(_options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+            await tcpClient.ConnectAsync(options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
 
-            if (_options.UseTls) {
+            if (options.UseTls) {
                 var networkStream = tcpClient.GetStream();
                 var ssl = new SslStream(networkStream, leaveInnerStreamOpen: true, UserCertificateValidationCallback);
-                var targetHost = _options.ProxyHost ?? _options.ProxyEndPoint.Address.ToString();
+                var targetHost = options.ProxyHost ?? options.ProxyEndPoint.Address.ToString();
                 await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
                     TargetHost = targetHost,
                     EnabledSslProtocols = SslProtocols.None,
@@ -88,7 +89,7 @@ public class HttpProxyClient(
 
     private bool UserCertificateValidationCallback(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
     {
-        if (_options.AllowInvalidCertificates) {
+        if (options.AllowInvalidCertificates) {
             logger?.LogWarning("Accepting invalid certificate due to AllowInvalidCertificates option");
             return true;
         }
@@ -118,16 +119,16 @@ public class HttpProxyClient(
         requestBuilder.Append("Connection: keep-alive\r\n");
         
         // Add authentication if provided
-        if (_options.Username != null) {
-            var credentials = $"{_options.Username}:{_options.Password ?? string.Empty}";
+        if (options.Username != null) {
+            var credentials = $"{options.Username}:{options.Password ?? string.Empty}";
             var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
             requestBuilder.Append($"Proxy-Authorization: Basic {encodedCredentials}\r\n");
-            logger?.LogDebug("Added proxy authentication for user: {Username}", _options.Username);
+            logger?.LogDebug("Added proxy authentication for user: {Username}", options.Username);
         }
         
         // Add extra headers if provided
-        if (_options.ExtraHeaders != null) {
-            foreach (var header in _options.ExtraHeaders) {
+        if (options.ExtraHeaders != null) {
+            foreach (var header in options.ExtraHeaders) {
                 requestBuilder.Append($"{header.Key}: {header.Value}\r\n");
             }
         }

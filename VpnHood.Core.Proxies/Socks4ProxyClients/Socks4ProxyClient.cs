@@ -7,6 +7,8 @@ namespace VpnHood.Core.Proxies.Socks4ProxyClients;
 // Minimal SOCKS4/4a client supporting CONNECT only
 public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
 {
+    public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
+
     public async Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
         => await ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken).ConfigureAwait(false);
 

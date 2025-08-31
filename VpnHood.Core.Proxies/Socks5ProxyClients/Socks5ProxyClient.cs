@@ -11,10 +11,8 @@ public class Socks5ProxyClient(
     ILogger<Socks5ProxyClient>? logger = null)
     : IProxyClient
 {
-    private readonly Socks5ProxyClientOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private bool _isAuthenticated;
-
-    public IPEndPoint ProxyEndPoint => _options.ProxyEndPoint;
+    public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
@@ -132,7 +130,7 @@ public class Socks5ProxyClient(
         logger?.LogDebug("Performing SOCKS5 authentication negotiation");
 
         // Send authentication methods
-        var hasCredentials = !string.IsNullOrEmpty(_options.Username);
+        var hasCredentials = !string.IsNullOrEmpty(options.Username);
         var methods = hasCredentials 
             ? new byte[] { 5, 2, (byte)Socks5AuthenticationType.NoAuthenticationRequired, (byte)Socks5AuthenticationType.UsernamePassword }
             : new byte[] { 5, 1, (byte)Socks5AuthenticationType.NoAuthenticationRequired };
@@ -159,11 +157,11 @@ public class Socks5ProxyClient(
                 break;
 
             case Socks5AuthenticationType.UsernamePassword:
-                if (string.IsNullOrEmpty(_options.Username))
+                if (string.IsNullOrEmpty(options.Username))
                 {
                     throw new UnauthorizedAccessException("Server requires username/password authentication but no credentials provided");
                 }
-                await PerformUsernamePasswordAuthAsync(stream, _options.Username, _options.Password ?? string.Empty, cancellationToken).ConfigureAwait(false);
+                await PerformUsernamePasswordAuthAsync(stream, options.Username, options.Password ?? string.Empty, cancellationToken).ConfigureAwait(false);
                 break;
 
             case Socks5AuthenticationType.ReplyNoAcceptableMethods:
