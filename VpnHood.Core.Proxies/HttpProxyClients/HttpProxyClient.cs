@@ -1,22 +1,19 @@
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace VpnHood.Core.Proxies.HttpProxyClients;
 
-public class HttpProxyClient : IProxyClient
+public class HttpProxyClient(
+    HttpProxyClientOptions options, 
+    ILogger<HttpProxyClient>? logger = null)
+    : IProxyClient
 {
-    private readonly HttpProxyClientOptions _options;
-    private readonly ILogger<HttpProxyClient>? _logger;
-
-    public HttpProxyClient(HttpProxyClientOptions options, ILogger<HttpProxyClient>? logger = null)
-    {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-        _logger = logger;
-    }
+    private readonly HttpProxyClientOptions _options = options ?? throw new ArgumentNullException(nameof(options));
 
     public async Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
         => await ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken).ConfigureAwait(false);
@@ -27,7 +24,7 @@ public class HttpProxyClient : IProxyClient
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
 
-        _logger?.LogDebug("Connecting to {Host}:{Port} through HTTP proxy {ProxyEndPoint}", host, port, _options.ProxyEndPoint);
+        logger?.LogDebug("Connecting to {Host}:{Port} through HTTP proxy {ProxyEndPoint}", host, port, _options.ProxyEndPoint);
 
         try {
             if (!tcpClient.Connected) {
@@ -38,28 +35,52 @@ public class HttpProxyClient : IProxyClient
             Stream stream = tcpClient.GetStream();
 
             if (_options.UseTls) {
-                _logger?.LogDebug("Establishing TLS connection to proxy");
+                logger?.LogDebug("Establishing TLS connection to proxy");
                 var ssl = new SslStream(stream, leaveInnerStreamOpen: true, UserCertificateValidationCallback);
                 
                 var targetHost = _options.ProxyHost ?? _options.ProxyEndPoint.Address.ToString();
                 await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
                     TargetHost = targetHost,
-                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                    EnabledSslProtocols = SslProtocols.None,
                     CertificateRevocationCheckMode = X509RevocationMode.NoCheck
                 }, cancellationToken).ConfigureAwait(false);
                 
                 stream = ssl;
-                _logger?.LogDebug("TLS connection established");
+                logger?.LogDebug("TLS connection established");
             }
 
             await SendConnectRequest(stream, host, port, cancellationToken).ConfigureAwait(false);
             await ReadConnectResponse(stream, cancellationToken).ConfigureAwait(false);
             
-            _logger?.LogDebug("HTTP CONNECT tunnel established to {Host}:{Port}", host, port);
+            logger?.LogDebug("HTTP CONNECT tunnel established to {Host}:{Port}", host, port);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to connect to {Host}:{Port} through HTTP proxy", host, port);
+            logger?.LogError(ex, "Failed to connect to {Host}:{Port} through HTTP proxy", host, port);
+            tcpClient.Close();
+            throw;
+        }
+    }
+
+    public async Task CheckConnectionAsync(TcpClient tcpClient, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tcpClient);
+        try {
+            tcpClient.NoDelay = true;
+            await tcpClient.ConnectAsync(_options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+
+            if (_options.UseTls) {
+                var networkStream = tcpClient.GetStream();
+                var ssl = new SslStream(networkStream, leaveInnerStreamOpen: true, UserCertificateValidationCallback);
+                var targetHost = _options.ProxyHost ?? _options.ProxyEndPoint.Address.ToString();
+                await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
+                    TargetHost = targetHost,
+                    EnabledSslProtocols = SslProtocols.None,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+                }, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch {
             tcpClient.Close();
             throw;
         }
@@ -68,12 +89,12 @@ public class HttpProxyClient : IProxyClient
     private bool UserCertificateValidationCallback(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
     {
         if (_options.AllowInvalidCertificates) {
-            _logger?.LogWarning("Accepting invalid certificate due to AllowInvalidCertificates option");
+            logger?.LogWarning("Accepting invalid certificate due to AllowInvalidCertificates option");
             return true;
         }
         
         if (sslPolicyErrors != SslPolicyErrors.None) {
-            _logger?.LogWarning("SSL certificate validation failed: {SslPolicyErrors}", sslPolicyErrors);
+            logger?.LogWarning("SSL certificate validation failed: {SslPolicyErrors}", sslPolicyErrors);
             return false;
         }
         
@@ -101,7 +122,7 @@ public class HttpProxyClient : IProxyClient
             var credentials = $"{_options.Username}:{_options.Password ?? string.Empty}";
             var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
             requestBuilder.Append($"Proxy-Authorization: Basic {encodedCredentials}\r\n");
-            _logger?.LogDebug("Added proxy authentication for user: {Username}", _options.Username);
+            logger?.LogDebug("Added proxy authentication for user: {Username}", _options.Username);
         }
         
         // Add extra headers if provided
@@ -118,7 +139,7 @@ public class HttpProxyClient : IProxyClient
         await stream.WriteAsync(requestBytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         
-        _logger?.LogDebug("Sent CONNECT request to proxy");
+        logger?.LogDebug("Sent CONNECT request to proxy");
     }
 
     private async Task ReadConnectResponse(Stream stream, CancellationToken cancellationToken)
@@ -149,7 +170,7 @@ public class HttpProxyClient : IProxyClient
                             buffer[i - 1] == '\r' && buffer[i] == '\n') {
                             var responseText = Encoding.UTF8.GetString(buffer, 0, i + 1);
                             ValidateConnectResponse(responseText);
-                            _logger?.LogDebug("Received successful CONNECT response from proxy");
+                            logger?.LogDebug("Received successful CONNECT response from proxy");
                             return;
                         }
                     }
@@ -171,7 +192,7 @@ public class HttpProxyClient : IProxyClient
             responseText = responseText[1..];
         }
 
-        var lines = responseText.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+        var lines = responseText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length == 0)
         {
             throw new IOException("Empty HTTP proxy response");

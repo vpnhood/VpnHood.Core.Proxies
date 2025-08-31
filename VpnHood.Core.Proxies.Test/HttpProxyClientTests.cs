@@ -160,4 +160,29 @@ public class HttpProxyClientTests
             server.Dispose();
         }
     }
+
+    [TestMethod]
+    public async Task HttpProxy_CheckConnection_Succeeds()
+    {
+        var (server, proxyEp, cts) = await StartHttpProxyAsync(); // No auth required
+        try
+        {
+            var clientOptions = new HttpProxyClientOptions
+            {
+                ProxyEndPoint = proxyEp,
+                UseTls = false,
+                AllowInvalidCertificates = true
+            };
+            var client = new HttpProxyClient(clientOptions);
+            using var tcp = new TcpClient();
+
+            await client.CheckConnectionAsync(tcp, CancellationToken.None);
+            Assert.IsTrue(tcp.Connected);
+        }
+        finally
+        {
+            await cts.CancelAsync();
+            server.Dispose();
+        }
+    }
 }

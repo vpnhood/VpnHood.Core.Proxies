@@ -6,7 +6,9 @@ using VpnHood.Core.Proxies.Socks5Proxy;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyClients;
 
-public class Socks5ProxyClient(Socks5ProxyClientOptions options, ILogger<Socks5ProxyClient>? logger = null)
+public class Socks5ProxyClient(
+    Socks5ProxyClientOptions options, 
+    ILogger<Socks5ProxyClient>? logger = null)
     : IProxyClient
 {
     private readonly Socks5ProxyClientOptions _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -32,17 +34,13 @@ public class Socks5ProxyClient(Socks5ProxyClientOptions options, ILogger<Socks5P
         }
     }
 
-    public async Task<TimeSpan> CheckConnectionAsync(TcpClient tcpClient, CancellationToken cancellationToken)
+    public async Task CheckConnectionAsync(TcpClient tcpClient, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(tcpClient);
-
         try {
-            var startTime = Environment.TickCount64;
             tcpClient.NoDelay = true;
             await tcpClient.ConnectAsync(ProxyEndPoint, cancellationToken).ConfigureAwait(false);
             var stream = tcpClient.GetStream();
             await EnsureAuthenticatedAsync(stream, cancellationToken).ConfigureAwait(false);
-            return TimeSpan.FromMilliseconds(Environment.TickCount64 - startTime);
         }
         catch {
             tcpClient.Close();

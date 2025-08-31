@@ -287,4 +287,52 @@ public class Socks5ProxyClientTests
         Assert.AreEqual(udpEcho.EndPoint.Port, responseEndpoint.Port);
         CollectionAssert.AreEqual(testMessage, responsePayload.ToArray());
     }
+
+    [TestMethod]
+    public async Task Socks5_CheckConnection_NoAuth_Succeeds()
+    {
+        using var proxyInstance = await StartSocks5ProxyAsync();
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var client = new Socks5ProxyClient(options);
+        using var tcp = new TcpClient();
+        await client.CheckConnectionAsync(tcp, CancellationToken.None);
+        Assert.IsTrue(tcp.Connected);
+    }
+
+    [TestMethod]
+    public async Task Socks5_CheckConnection_WithAuth_Succeeds()
+    {
+        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "u", Password = "p" };
+        var client = new Socks5ProxyClient(options);
+        using var tcp = new TcpClient();
+        await client.CheckConnectionAsync(tcp, CancellationToken.None);
+        Assert.IsTrue(tcp.Connected);
+    }
+
+    [TestMethod]
+    public async Task Socks5_CheckConnection_WithoutAuth_Fails()
+    {
+        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var client = new Socks5ProxyClient(options);
+        using var tcp = new TcpClient();
+        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        {
+            await client.CheckConnectionAsync(tcp, CancellationToken.None);
+        });
+    }
+
+    [TestMethod]
+    public async Task Socks5_CheckConnection_WrongCredentials_Fails()
+    {
+        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "wrong", Password = "creds" };
+        var client = new Socks5ProxyClient(options);
+        using var tcp = new TcpClient();
+        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        {
+            await client.CheckConnectionAsync(tcp, CancellationToken.None);
+        });
+    }
 }

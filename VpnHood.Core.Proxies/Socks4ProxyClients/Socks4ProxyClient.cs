@@ -37,6 +37,18 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
         }
     }
 
+    public async Task CheckConnectionAsync(TcpClient tcpClient, CancellationToken cancellationToken)
+    {
+        try {
+            tcpClient.NoDelay = true;
+            await tcpClient.ConnectAsync(options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+        }
+        catch {
+            tcpClient.Close();
+            throw;
+        }
+    }
+
     private static ReadOnlyMemory<byte> BuildRequest(IPAddress ip, int port, string? domainName, string? userId)
     {
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
