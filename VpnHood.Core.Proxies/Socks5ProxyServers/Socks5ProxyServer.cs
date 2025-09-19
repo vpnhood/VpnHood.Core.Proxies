@@ -7,72 +7,15 @@ using System.Buffers;
 
 namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 
-public sealed class Socks5ProxyServer : IDisposable
+public sealed class Socks5ProxyServer(
+    Socks5ProxyServerOptions options,
+    ILogger<Socks5ProxyServer>? logger = null)
+    : TcpProxyServerBase(options.ListenEndPoint, options.Backlog, logger)
 {
-    private readonly Socks5ProxyServerOptions _options;
-    private readonly ILogger<Socks5ProxyServer>? _logger;
-    private readonly TcpListener _listener;
-    private readonly CancellationTokenSource _serverCts = new();
-    public bool IsStarted { get; private set; }
-    public IPEndPoint ListenerEndPoint => (IPEndPoint)_listener.LocalEndpoint;
-
-    public Socks5ProxyServer(Socks5ProxyServerOptions options, ILogger<Socks5ProxyServer>? logger = null)
-    {
-        _options = options;
-        _logger = logger;
-        _listener = new TcpListener(_options.ListenEndPoint);
-    }
-
-    public void Start()
-    {
-        if (IsStarted) return;
-        _listener.Start(_options.Backlog);
-        IsStarted = true;
-        _logger?.LogInformation("SOCKS5 proxy server started on {EndPoint}", _options.ListenEndPoint);
-    }
-
-    public void Stop()
-    {
-        if (!IsStarted) return;
-        IsStarted = false;
-        _serverCts.Cancel();
-        _listener.Stop();
-        _logger?.LogInformation("SOCKS5 proxy server stopped");
-    }
-
-    private async Task Listen()
-    {
-        var cancellationToken = _serverCts.Token;
-        Start();
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-                    _ = HandleClientAsync(client, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception exception)
-                {
-                    _logger?.LogError(exception, "Error accepting client connection");
-                }
-            }
-        }
-        finally
-        {
-            Stop();
-        }
-    }
-
-    private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
+    protected override async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
         var clientEndpoint = client.Client.RemoteEndPoint as IPEndPoint ?? new IPEndPoint(IPAddress.None, 0);
-        _logger?.LogDebug("Handling SOCKS5 client connection from {ClientEndpoint}", clientEndpoint);
+        Logger.LogDebug("Handling SOCKS5 client connection from {ClientEndpoint}", clientEndpoint);
 
         try
         {
@@ -85,7 +28,7 @@ public sealed class Socks5ProxyServer : IDisposable
             if (!handshakeResult.IsValid)
                 return;
 
-            _logger?.LogDebug("Processing {Command} command from {ClientEndpoint}", handshakeResult.RequestHeader.Command, clientEndpoint);
+            Logger.LogDebug("Processing {Command} command from {ClientEndpoint}", handshakeResult.RequestHeader.Command, clientEndpoint);
 
             // Handle request based on command
             switch (handshakeResult.RequestHeader.Command)
@@ -112,13 +55,13 @@ public sealed class Socks5ProxyServer : IDisposable
                         }
                         catch (Exception ex)
                         {
-                            _logger?.LogDebug(ex, "TCP connection closed for UDP associate with {ClientEndpoint}", clientEndpoint);
+                            Logger.LogDebug(ex, "TCP connection closed for UDP associate with {ClientEndpoint}", clientEndpoint);
                         }
                         break;
                     }
                 default:
                     {
-                        _logger?.LogWarning("Unsupported command {Command} from {ClientEndpoint}", handshakeResult.RequestHeader.Command, clientEndpoint);
+                        Logger.LogWarning("Unsupported command {Command} from {ClientEndpoint}", handshakeResult.RequestHeader.Command, clientEndpoint);
                         await SendReplyAsync(networkStream, Socks5CommandReply.CommandNotSupported, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
                         break;
                     }
@@ -126,11 +69,11 @@ public sealed class Socks5ProxyServer : IDisposable
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpoint);
+            Logger.LogDebug("Client connection cancelled for {ClientEndpoint}", clientEndpoint);
         }
         catch (Exception exception)
         {
-            _logger?.LogError(exception, "Error handling SOCKS5 client {ClientEndpoint}", clientEndpoint);
+            Logger.LogError(exception, "Error handling SOCKS5 client {ClientEndpoint}", clientEndpoint);
         }
     }
 
@@ -140,16 +83,16 @@ public sealed class Socks5ProxyServer : IDisposable
         try
         {
             using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            handshakeCts.CancelAfter(_options.HandshakeTimeout);
+            handshakeCts.CancelAfter(options.HandshakeTimeout);
 
             // Authentication negotiation
-            var authType = await NegotiateAuthAsync(networkStream, requireAuth: _options.Username != null, handshakeCts.Token).ConfigureAwait(false);
+            var authType = await NegotiateAuthAsync(networkStream, requireAuth: options.Username != null, handshakeCts.Token).ConfigureAwait(false);
             if (authType == Socks5AuthenticationType.UsernamePassword)
             {
-                var authResult = await HandleUserPassAuthAsync(networkStream, _options.Username!,
-                    _options.Password ?? string.Empty, handshakeCts.Token).ConfigureAwait(false);
+                var authResult = await HandleUserPassAuthAsync(networkStream, options.Username!,
+                    options.Password ?? string.Empty, handshakeCts.Token).ConfigureAwait(false);
 
-                _logger?.LogDebug("Authentication result for {ClientEndpoint}", clientEndpoint);
+                Logger.LogDebug("Authentication result for {ClientEndpoint}", clientEndpoint);
                 if (!authResult)
                     return Socks5HandshakeResult.Invalid;
             }
@@ -161,12 +104,12 @@ public sealed class Socks5ProxyServer : IDisposable
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogDebug("Handshake cancelled for {ClientEndpoint}", clientEndpoint);
+            Logger.LogDebug("Handshake cancelled for {ClientEndpoint}", clientEndpoint);
             return Socks5HandshakeResult.Invalid;
         }
         catch (Exception exception)
         {
-            _logger?.LogError(exception, "Error during handshake for {ClientEndpoint}", clientEndpoint);
+            Logger.LogError(exception, "Error during handshake for {ClientEndpoint}", clientEndpoint);
             return Socks5HandshakeResult.Invalid;
         }
     }
@@ -292,7 +235,7 @@ public sealed class Socks5ProxyServer : IDisposable
     {
         try
         {
-            _logger?.LogDebug("Connecting to {DestAddress}:{DestPort} for {ClientEndpoint}", destinationAddress, destinationPort, clientEndpoint);
+            Logger.LogDebug("Connecting to {DestAddress}:{DestPort} for {ClientEndpoint}", destinationAddress, destinationPort, clientEndpoint);
 
             using var remoteClient = new TcpClient(destinationAddress.AddressFamily);
             remoteClient.NoDelay = true;
@@ -300,14 +243,14 @@ public sealed class Socks5ProxyServer : IDisposable
             // Set connection timeout
             using (var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                connectionCts.CancelAfter(_options.HostConnectionTimeout);
+                connectionCts.CancelAfter(options.HostConnectionTimeout);
                 await remoteClient.ConnectAsync(destinationAddress, destinationPort, connectionCts.Token).ConfigureAwait(false);
             }
 
             var localEndPoint = (IPEndPoint)remoteClient.Client.LocalEndPoint!;
             await SendReplyAsync(clientStream, Socks5CommandReply.Succeeded, localEndPoint.Address, localEndPoint.Port, cancellationToken).ConfigureAwait(false);
 
-            _logger?.LogDebug("Tunneling established between {ClientEndpoint} and {DestAddress}:{DestPort}", clientEndpoint, destinationAddress, destinationPort);
+            Logger.LogDebug("Tunneling established between {ClientEndpoint} and {DestAddress}:{DestPort}", clientEndpoint, destinationAddress, destinationPort);
 
             var remoteStream = remoteClient.GetStream();
             await PumpStreamsAsync(clientStream, remoteStream, cancellationToken).ConfigureAwait(false);
@@ -330,7 +273,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
         catch (Exception exception)
         {
-            _logger?.LogError(exception, "Failed to establish connection to {DestAddress}:{DestPort} for {ClientEndpoint}", destinationAddress, destinationPort, clientEndpoint);
+            Logger.LogError(exception, "Failed to establish connection to {DestAddress}:{DestPort} for {ClientEndpoint}", destinationAddress, destinationPort, clientEndpoint);
             await SendReplyAsync(clientStream, Socks5CommandReply.GeneralSocksServerFailure, IPAddress.Any, 0, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -351,7 +294,7 @@ public sealed class Socks5ProxyServer : IDisposable
         _ = UdpRelayLoopAsync(proxyUdpClient, clientEndpoint, relayCts.Token);
         _ = MonitorTcpConnectionAsync(controlTcpClient, relayCts, proxyUdpClient);
 
-        _logger?.LogDebug("UDP associate established for {ClientEndpoint} on port {Port}", clientEndpoint, localEndPoint.Port);
+        Logger.LogDebug("UDP associate established for {ClientEndpoint} on port {Port}", clientEndpoint, localEndPoint.Port);
 
         return new UdpAssociateResult { BindAddress = IPAddress.Any, BindPort = localEndPoint.Port };
     }
@@ -376,7 +319,7 @@ public sealed class Socks5ProxyServer : IDisposable
             }
             catch (Exception exception)
             {
-                _logger?.LogError(exception, "Error during UDP associate cleanup");
+                Logger.LogError(exception, "Error during UDP associate cleanup");
             }
             finally
             {
@@ -391,7 +334,7 @@ public sealed class Socks5ProxyServer : IDisposable
 
         try
         {
-            _logger?.LogDebug("Starting UDP relay loop for {ClientEndpoint}", clientEndpoint);
+            Logger.LogDebug("Starting UDP relay loop for {ClientEndpoint}", clientEndpoint);
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -414,11 +357,11 @@ public sealed class Socks5ProxyServer : IDisposable
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogDebug("UDP relay loop cancelled for {ClientEndpoint}", clientEndpoint);
+            Logger.LogDebug("UDP relay loop cancelled for {ClientEndpoint}", clientEndpoint);
         }
         catch (Exception exception)
         {
-            _logger?.LogError(exception, "Error in UDP relay loop for {ClientEndpoint}", clientEndpoint);
+            Logger.LogError(exception, "Error in UDP relay loop for {ClientEndpoint}", clientEndpoint);
         }
     }
 
@@ -427,7 +370,7 @@ public sealed class Socks5ProxyServer : IDisposable
     {
         if (data.Length < 7 || data[0] != 0 || data[1] != 0 || data[2] != 0)
         {
-            _logger?.LogWarning("Invalid SOCKS5 UDP packet format from {ClientEndpoint}", clientUdpEndpoint);
+            Logger.LogWarning("Invalid SOCKS5 UDP packet format from {ClientEndpoint}", clientUdpEndpoint);
             return;
         }
 
@@ -460,7 +403,7 @@ public sealed class Socks5ProxyServer : IDisposable
                     break;
 
                 default:
-                    _logger?.LogWarning("Unsupported address type {AddressType} from {ClientEndpoint}", addressType, clientUdpEndpoint);
+                    Logger.LogWarning("Unsupported address type {AddressType} from {ClientEndpoint}", addressType, clientUdpEndpoint);
                     return;
             }
 
@@ -472,7 +415,7 @@ public sealed class Socks5ProxyServer : IDisposable
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning(exception, "Failed to relay UDP packet from client {ClientEndpoint}", clientUdpEndpoint);
+            Logger.LogWarning(exception, "Failed to relay UDP packet from client {ClientEndpoint}", clientUdpEndpoint);
         }
     }
 
@@ -524,13 +467,13 @@ public sealed class Socks5ProxyServer : IDisposable
 
             await proxyUdpClient.SendAsync(mem, clientEndpoint, cancellationToken).ConfigureAwait(false);
 
-            _logger?.LogDebug(
+            Logger.LogDebug(
                 "Relayed UDP response from {Source} to {ClientEndpoint}, payload size: {Size}, response size: {ResponseSize}",
                 sourceEndpoint, clientUdpEndpoint, data.Length, totalLength);
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning(exception,
+            Logger.LogWarning(exception,
                 "Failed to relay UDP response from {Source} to client {ClientEndpoint}",
                 sourceEndpoint, clientUdpEndpoint);
         }
@@ -648,9 +591,4 @@ public sealed class Socks5ProxyServer : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        Stop();
-        _serverCts.Dispose();
-    }
 }

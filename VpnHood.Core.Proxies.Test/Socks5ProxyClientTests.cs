@@ -10,39 +10,22 @@ namespace VpnHood.Core.Proxies.Test;
 [TestClass]
 public class Socks5ProxyClientTests
 {
-    private static Task<ProxyServerTestInstance> StartSocks5ProxyAsync(string? user = null, string? pass = null)
+    private static Task<Socks5ProxyServer> StartSocks5ProxyAsync(string? user = null, string? pass = null)
     {
         var listenEp = new IPEndPoint(IPAddress.Loopback, 0);
         var serverOptions = new Socks5ProxyServerOptions { ListenEndPoint = listenEp, Username = user, Password = pass };
         var server = new Socks5ProxyServer(serverOptions);
-        var cts = new CancellationTokenSource();
-        
-        // Start the server
         server.Start();
-        
-        // Get the actual bound endpoint
-        var listenerField = typeof(Socks5ProxyServer).GetField("_listener", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var listener = (TcpListener)listenerField!.GetValue(server)!;
-        var actualEndpoint = (IPEndPoint)listener.LocalEndpoint;
-        
-        // Start the server loop in background
-        server.Start();
-        
-        return Task.FromResult(new ProxyServerTestInstance
-        {
-            Server = server,
-            EndPoint = actualEndpoint,
-            CancellationTokenSource = cts
-        });
+        return Task.FromResult(server);
     }
 
     [TestMethod]
     public async Task Socks5_Connect_WithAuth_Succeeds()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+        using var server = await StartSocks5ProxyAsync(user: "user", pass: "pass");
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "user", Password = "pass" };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "user", Password = "pass" };
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
@@ -60,9 +43,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_Connect_WithoutAuth_Fails()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+        using var server = await StartSocks5ProxyAsync(user: "user", pass: "pass");
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
@@ -76,9 +59,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_Connect_NoAuth_Succeeds()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(); // No auth required
+        using var server = await StartSocks5ProxyAsync(); // No auth required
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
@@ -96,9 +79,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_Connect_WrongCredentials_Fails()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+        using var server = await StartSocks5ProxyAsync(user: "user", pass: "pass");
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "wrong", Password = "credentials" };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "wrong", Password = "credentials" };
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
@@ -112,9 +95,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_UdpAssociate_WithAuth_Succeeds()
     {
         using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+        using var server = await StartSocks5ProxyAsync(user: "user", pass: "pass");
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "user", Password = "pass" };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "user", Password = "pass" };
         var client = new Socks5ProxyClient(options);
 
         // Create UDP client for sending/receiving data
@@ -157,9 +140,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_UdpAssociate_WithoutAuth_Fails()
     {
         using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "user", pass: "pass");
+        using var server = await StartSocks5ProxyAsync(user: "user", pass: "pass");
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint }; // No credentials
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint }; // No credentials
         var client = new Socks5ProxyClient(options);
 
         using var controlTcp = new TcpClient();
@@ -174,9 +157,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_UdpAssociate_NoAuth_Succeeds()
     {
         using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(); // No auth required
+        using var server = await StartSocks5ProxyAsync(); // No auth required
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
 
         // Create UDP client
@@ -209,9 +192,9 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_UdpAssociate_Simple_Test()
     {
-        using var proxyInstance = await StartSocks5ProxyAsync(); // No auth required
+        using var server = await StartSocks5ProxyAsync(); // No auth required
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
 
         // Just test the UDP ASSOCIATE command without actual UDP traffic
@@ -250,9 +233,9 @@ public class Socks5ProxyClientTests
     public async Task Socks5_UdpAssociate_SendPacket_Test()
     {
         using var udpEcho = new UdpEchoServer(IPAddress.Loopback);
-        using var proxyInstance = await StartSocks5ProxyAsync(); // No auth required
+        using var server = await StartSocks5ProxyAsync(); // No auth required
 
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
 
         // Create UDP client
@@ -288,8 +271,8 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_CheckConnection_NoAuth_Succeeds()
     {
-        using var proxyInstance = await StartSocks5ProxyAsync();
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        using var server = await StartSocks5ProxyAsync();
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
         await client.CheckConnectionAsync(tcp, CancellationToken.None);
@@ -299,8 +282,8 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_CheckConnection_WithAuth_Succeeds()
     {
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "u", Password = "p" };
+        using var server = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "u", Password = "p" };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
         await client.CheckConnectionAsync(tcp, CancellationToken.None);
@@ -310,8 +293,8 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_CheckConnection_WithoutAuth_Fails()
     {
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint };
+        using var server = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
         await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
@@ -323,8 +306,8 @@ public class Socks5ProxyClientTests
     [TestMethod]
     public async Task Socks5_CheckConnection_WrongCredentials_Fails()
     {
-        using var proxyInstance = await StartSocks5ProxyAsync(user: "u", pass: "p");
-        var options = new Socks5ProxyClientOptions { ProxyEndPoint = proxyInstance.EndPoint, Username = "wrong", Password = "creds" };
+        using var server = await StartSocks5ProxyAsync(user: "u", pass: "p");
+        var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "wrong", Password = "creds" };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
         await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>

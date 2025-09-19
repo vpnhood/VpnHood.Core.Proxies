@@ -9,174 +9,125 @@ namespace VpnHood.Core.Proxies.Test;
 [TestClass]
 public class HttpProxyClientTests
 {
-    private static Task<(HttpProxyServer server, IPEndPoint endpoint, CancellationTokenSource cts)> StartHttpProxyAsync(string? user = null, string? pass = null)
+    private static Task<HttpProxyServer> StartHttpProxyAsync(string? user = null, string? pass = null)
     {
         var listenEp = new IPEndPoint(IPAddress.Loopback, 0);
         var serverOptions = new HttpProxyServerOptions { ListenEndPoint = listenEp, Username = user, Password = pass };
         var server = new HttpProxyServer(serverOptions);
-        var cts = new CancellationTokenSource();
-        // Start the server
         server.Start();
-        
-        // Get the actual bound endpoint
-        var listenerField = typeof(HttpProxyServer).GetField("_listener", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var listener = (TcpListener)listenerField!.GetValue(server)!;
-        var actualEndpoint = (IPEndPoint)listener.LocalEndpoint;
-        
-        var res =  (server, actualEndpoint, cts);
-        return Task.FromResult(res);
+        return Task.FromResult(server);
     }
 
     [TestMethod]
     public async Task HttpProxy_Connect_WithAuth_Succeeds()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        var (server, proxyEp, cts) = await StartHttpProxyAsync(user: "u", pass: "p");
+        using var server = await StartHttpProxyAsync(user: "u", pass: "p");
 
-        try
+        var clientOptions = new HttpProxyClientOptions
         {
-            var clientOptions = new HttpProxyClientOptions
-            {
-                ProxyEndPoint = proxyEp,
-                Username = "u",
-                Password = "p",
-                UseTls = false,
-                AllowInvalidCertificates = true
-            };
-            var client = new HttpProxyClient(clientOptions);
-            using var tcp = new TcpClient();
-            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
+            ProxyEndPoint = server.ListenerEndPoint,
+            Username = "u",
+            Password = "p",
+            UseTls = false,
+            AllowInvalidCertificates = true
+        };
+        var client = new HttpProxyClient(clientOptions);
+        using var tcp = new TcpClient();
+        await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
 
-            var stream = tcp.GetStream();
-            var payload = "hello"u8.ToArray();
-            await stream.WriteAsync(payload);
-            var buf = new byte[payload.Length];
-            await stream.ReadExactlyAsync(buf);
+        var stream = tcp.GetStream();
+        var payload = "hello"u8.ToArray();
+        await stream.WriteAsync(payload);
+        var buf = new byte[payload.Length];
+        await stream.ReadExactlyAsync(buf);
 
-            CollectionAssert.AreEqual(payload, buf);
-        }
-        finally
-        {
-            await cts.CancelAsync();
-            server.Dispose();
-        }
+        CollectionAssert.AreEqual(payload, buf);
     }
 
     [TestMethod]
     public async Task HttpProxy_Connect_WithoutAuth_Fails()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        var (server, proxyEp, cts) = await StartHttpProxyAsync(user: "u", pass: "p");
+        using var server = await StartHttpProxyAsync(user: "u", pass: "p");
 
-        try
+        var clientOptions = new HttpProxyClientOptions
         {
-            var clientOptions = new HttpProxyClientOptions
-            {
-                ProxyEndPoint = proxyEp,
-                UseTls = false,
-                AllowInvalidCertificates = true
-            };
-            var client = new HttpProxyClient(clientOptions);
-            using var tcp = new TcpClient();
+            ProxyEndPoint = server.ListenerEndPoint,
+            UseTls = false,
+            AllowInvalidCertificates = true
+        };
+        var client = new HttpProxyClient(clientOptions);
+        using var tcp = new TcpClient();
 
-            await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
-            {
-                await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
-            });
-        }
-        finally
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
         {
-            await cts.CancelAsync();
-            server.Dispose();
-        }
+            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
+        });
     }
 
     [TestMethod]
     public async Task HttpProxy_Connect_NoAuth_Succeeds()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        var (server, proxyEp, cts) = await StartHttpProxyAsync(); // No auth required
+        using var server = await StartHttpProxyAsync(); // No auth required
 
-        try
+        var clientOptions = new HttpProxyClientOptions
         {
-            var clientOptions = new HttpProxyClientOptions
-            {
-                ProxyEndPoint = proxyEp,
-                UseTls = false,
-                AllowInvalidCertificates = true
-            };
-            var client = new HttpProxyClient(clientOptions);
-            using var tcp = new TcpClient();
-            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
+            ProxyEndPoint = server.ListenerEndPoint,
+            UseTls = false,
+            AllowInvalidCertificates = true
+        };
+        var client = new HttpProxyClient(clientOptions);
+        using var tcp = new TcpClient();
+        await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
 
-            var stream = tcp.GetStream();
-            var payload = "hello no auth"u8.ToArray();
-            await stream.WriteAsync(payload);
-            var buf = new byte[payload.Length];
-            await stream.ReadExactlyAsync(buf);
+        var stream = tcp.GetStream();
+        var payload = "hello no auth"u8.ToArray();
+        await stream.WriteAsync(payload);
+        var buf = new byte[payload.Length];
+        await stream.ReadExactlyAsync(buf);
 
-            CollectionAssert.AreEqual(payload, buf);
-        }
-        finally
-        {
-            await cts.CancelAsync();
-            server.Dispose();
-        }
+        CollectionAssert.AreEqual(payload, buf);
     }
 
     [TestMethod]
     public async Task HttpProxy_Connect_WrongCredentials_Fails()
     {
         using var echo = new EchoServer(IPAddress.Loopback);
-        var (server, proxyEp, cts) = await StartHttpProxyAsync(user: "u", pass: "p");
+        using var server = await StartHttpProxyAsync(user: "u", pass: "p");
 
-        try
+        var clientOptions = new HttpProxyClientOptions
         {
-            var clientOptions = new HttpProxyClientOptions
-            {
-                ProxyEndPoint = proxyEp,
-                Username = "wrong",
-                Password = "credentials",
-                UseTls = false,
-                AllowInvalidCertificates = true
-            };
-            var client = new HttpProxyClient(clientOptions);
-            using var tcp = new TcpClient();
+            ProxyEndPoint = server.ListenerEndPoint,
+            Username = "wrong",
+            Password = "credentials",
+            UseTls = false,
+            AllowInvalidCertificates = true
+        };
+        var client = new HttpProxyClient(clientOptions);
+        using var tcp = new TcpClient();
 
-            await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
-            {
-                await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
-            });
-        }
-        finally
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
         {
-            await cts.CancelAsync();
-            server.Dispose();
-        }
+            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
+        });
     }
 
     [TestMethod]
     public async Task HttpProxy_CheckConnection_Succeeds()
     {
-        var (server, proxyEp, cts) = await StartHttpProxyAsync(); // No auth required
-        try
+        using var server = await StartHttpProxyAsync(); // No auth required
+        var clientOptions = new HttpProxyClientOptions
         {
-            var clientOptions = new HttpProxyClientOptions
-            {
-                ProxyEndPoint = proxyEp,
-                UseTls = false,
-                AllowInvalidCertificates = true
-            };
-            var client = new HttpProxyClient(clientOptions);
-            using var tcp = new TcpClient();
+            ProxyEndPoint = server.ListenerEndPoint,
+            UseTls = false,
+            AllowInvalidCertificates = true
+        };
+        var client = new HttpProxyClient(clientOptions);
+        using var tcp = new TcpClient();
 
-            await client.CheckConnectionAsync(tcp, CancellationToken.None);
-            Assert.IsTrue(tcp.Connected);
-        }
-        finally
-        {
-            await cts.CancelAsync();
-            server.Dispose();
-        }
+        await client.CheckConnectionAsync(tcp, CancellationToken.None);
+        Assert.IsTrue(tcp.Connected);
     }
 }
