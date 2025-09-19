@@ -10,7 +10,7 @@ namespace VpnHood.Core.Proxies.Test;
 [TestClass]
 public class Socks5ProxyClientTests
 {
-    private static async Task<ProxyServerTestInstance> StartSocks5ProxyAsync(string? user = null, string? pass = null)
+    private static Task<ProxyServerTestInstance> StartSocks5ProxyAsync(string? user = null, string? pass = null)
     {
         var listenEp = new IPEndPoint(IPAddress.Loopback, 0);
         var serverOptions = new Socks5ProxyServerOptions { ListenEndPoint = listenEp, Username = user, Password = pass };
@@ -26,17 +26,14 @@ public class Socks5ProxyClientTests
         var actualEndpoint = (IPEndPoint)listener.LocalEndpoint;
         
         // Start the server loop in background
-        _ = server.RunAsync(cts.Token);
+        server.Start();
         
-        // Give server time to start accepting connections
-        await Task.Delay(50, cts.Token);
-        
-        return new ProxyServerTestInstance
+        return Task.FromResult(new ProxyServerTestInstance
         {
             Server = server,
             EndPoint = actualEndpoint,
             CancellationTokenSource = cts
-        };
+        });
     }
 
     [TestMethod]

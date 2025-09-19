@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -9,8 +10,9 @@ public sealed class HttpProxyServer : IDisposable
     private readonly HttpProxyServerOptions _options;
     private readonly ILogger<HttpProxyServer>? _logger;
     private readonly TcpListener _listener;
-    private readonly CancellationTokenSource _serverCts = new();
-    private volatile bool _isRunning;
+    private CancellationTokenSource _serverCts = new();
+    public bool IsStarted => !_serverCts.IsCancellationRequested;
+    public IPEndPoint ListenerEndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public HttpProxyServer(HttpProxyServerOptions options, ILogger<HttpProxyServer>? logger = null)
     {
@@ -21,35 +23,33 @@ public sealed class HttpProxyServer : IDisposable
 
     public void Start()
     {
-        if (_isRunning) return;
+        if (IsStarted) return;
+        _serverCts = new CancellationTokenSource();
         _listener.Start(_options.Backlog);
-        _isRunning = true;
+        Task.Run(Listen);
         _logger?.LogInformation("HTTP proxy server started on {EndPoint}", _options.ListenEndPoint);
     }
 
     public void Stop()
     {
-        if (!_isRunning) return;
-        _isRunning = false;
+        if (!IsStarted) return;
         _serverCts.Cancel();
         _listener.Stop();
         _logger?.LogInformation("HTTP proxy server stopped");
     }
 
-    public async Task RunAsync(CancellationToken cancellationToken = default)
+    private async Task Listen()
     {
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _serverCts.Token);
-        var operationCancellationToken = linkedCts.Token;
-
+        var cancellationToken = _serverCts.Token;
         Start();
         try
         {
-            while (!operationCancellationToken.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(operationCancellationToken).ConfigureAwait(false);
-                    _ = Task.Run(() => HandleClientAsync(client, operationCancellationToken), operationCancellationToken);
+                    var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                    _ = HandleClientAsync(client, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -178,7 +178,7 @@ public sealed class HttpProxyServer : IDisposable
         }
     }
 
-    private async Task HandleConnectRequestAsync(string authority, Stream clientStream, 
+    private async Task HandleConnectRequestAsync(string authority, Stream clientStream,
         StreamWriter writer, CancellationToken cancellationToken, string clientEndpointAddress)
     {
         try

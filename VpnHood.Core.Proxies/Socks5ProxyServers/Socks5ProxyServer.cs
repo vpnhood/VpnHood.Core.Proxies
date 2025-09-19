@@ -13,7 +13,8 @@ public sealed class Socks5ProxyServer : IDisposable
     private readonly ILogger<Socks5ProxyServer>? _logger;
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _serverCts = new();
-    private volatile bool _isRunning;
+    public bool IsStarted { get; private set; }
+    public IPEndPoint ListenerEndPoint => (IPEndPoint)_listener.LocalEndpoint;
 
     public Socks5ProxyServer(Socks5ProxyServerOptions options, ILogger<Socks5ProxyServer>? logger = null)
     {
@@ -24,34 +25,33 @@ public sealed class Socks5ProxyServer : IDisposable
 
     public void Start()
     {
-        if (_isRunning) return;
+        if (IsStarted) return;
         _listener.Start(_options.Backlog);
-        _isRunning = true;
+        IsStarted = true;
         _logger?.LogInformation("SOCKS5 proxy server started on {EndPoint}", _options.ListenEndPoint);
     }
 
     public void Stop()
     {
-        if (!_isRunning) return;
-        _isRunning = false;
+        if (!IsStarted) return;
+        IsStarted = false;
         _serverCts.Cancel();
         _listener.Stop();
         _logger?.LogInformation("SOCKS5 proxy server stopped");
     }
 
-    public async Task RunAsync(CancellationToken cancellationToken = default)
+    private async Task Listen()
     {
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _serverCts.Token);
-
+        var cancellationToken = _serverCts.Token;
         Start();
         try
         {
-            while (!linkedCts.Token.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(linkedCts.Token).ConfigureAwait(false);
-                    _ = HandleClientAsync(client, linkedCts.Token);
+                    var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                    _ = HandleClientAsync(client, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {

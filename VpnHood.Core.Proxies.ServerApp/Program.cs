@@ -101,22 +101,20 @@ internal class Program
             Password = password
         };
 
-        var server = new HttpProxyServer(serverOptions);
+        using var server = new HttpProxyServer(serverOptions);
         Console.WriteLine($"Starting HTTP proxy server on {host}:{port}");
         if (username != null)
             Console.WriteLine($"Authentication required: {username}");
 
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        server.Start();
+        Console.CancelKeyPress += (_, e) => {
+            e.Cancel = true; 
+            // ReSharper disable once AccessToDisposedClosure
+            server.Stop();
+        };
 
-        try
-        {
-            await server.RunAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("Server stopped.");
-        }
+        while (server.IsStarted)
+            await Task.Delay(1000);
     }
 
     private static async Task RunHttpsProxy(Dictionary<string, string> options)
@@ -185,22 +183,21 @@ internal class Program
             Password = password
         };
 
-        var server = new Socks5ProxyServer(serverOptions);
+        using var server = new Socks5ProxyServer(serverOptions);
         Console.WriteLine($"Starting SOCKS5 proxy server on {host}:{port}");
         if (username != null)
             Console.WriteLine($"Authentication required: {username}");
 
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-        try
-        {
-            await server.RunAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
+        server.Start();
+        Console.CancelKeyPress += (_, e) => {
+            e.Cancel = true;
+            // ReSharper disable once AccessToDisposedClosure
+            server.Stop();
             Console.WriteLine("Server stopped.");
-        }
+        };
+
+        while (server.IsStarted)
+            await Task.Delay(1000);
     }
 
     private static X509Certificate2 CreateSelfSignedCertificate(string hostname)

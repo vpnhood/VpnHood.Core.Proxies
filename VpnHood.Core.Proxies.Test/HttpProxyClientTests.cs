@@ -9,13 +9,12 @@ namespace VpnHood.Core.Proxies.Test;
 [TestClass]
 public class HttpProxyClientTests
 {
-    private static async Task<(HttpProxyServer server, IPEndPoint endpoint, CancellationTokenSource cts)> StartHttpProxyAsync(string? user = null, string? pass = null)
+    private static Task<(HttpProxyServer server, IPEndPoint endpoint, CancellationTokenSource cts)> StartHttpProxyAsync(string? user = null, string? pass = null)
     {
         var listenEp = new IPEndPoint(IPAddress.Loopback, 0);
         var serverOptions = new HttpProxyServerOptions { ListenEndPoint = listenEp, Username = user, Password = pass };
         var server = new HttpProxyServer(serverOptions);
         var cts = new CancellationTokenSource();
-        
         // Start the server
         server.Start();
         
@@ -24,13 +23,8 @@ public class HttpProxyClientTests
         var listener = (TcpListener)listenerField!.GetValue(server)!;
         var actualEndpoint = (IPEndPoint)listener.LocalEndpoint;
         
-        // Start the server loop in background
-        _ = server.RunAsync(cts.Token);
-        
-        // Give server time to start accepting connections
-        await Task.Delay(50, cts.Token);
-        
-        return (server, actualEndpoint, cts);
+        var res =  (server, actualEndpoint, cts);
+        return Task.FromResult(res);
     }
 
     [TestMethod]
