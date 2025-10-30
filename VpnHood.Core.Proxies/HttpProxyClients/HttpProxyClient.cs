@@ -158,9 +158,8 @@ public class HttpProxyClient(
                     buffer.AsMemory(totalReceived, buffer.Length - totalReceived), 
                     timeout.Token).ConfigureAwait(false);
                 
-                if (bytesRead == 0) {
+                if (bytesRead == 0) 
                     throw new IOException("Proxy closed connection before sending complete response");
-                }
                 
                 totalReceived += bytesRead;
                 
@@ -189,33 +188,23 @@ public class HttpProxyClient(
     {
         // Remove any BOM that might be present
         if (responseText.StartsWith('\ufeff'))
-        {
             responseText = responseText[1..];
-        }
 
         var lines = responseText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length == 0)
-        {
             throw new IOException("Empty HTTP proxy response");
-        }
         
         var statusLine = lines[0];
         var statusParts = statusLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
         
         if (statusParts.Length < 2)
-        {
             throw new IOException($"Invalid HTTP proxy status line: {statusLine}");
-        }
         
         if (!statusParts[0].StartsWith("HTTP/", StringComparison.OrdinalIgnoreCase))
-        {
             throw new IOException($"Invalid HTTP version in proxy response: {statusParts[0]}");
-        }
         
         if (!int.TryParse(statusParts[1], out var statusCode))
-        {
             throw new IOException($"Invalid HTTP status code in proxy response: {statusParts[1]}");
-        }
         
         if (statusCode != 200)
         {

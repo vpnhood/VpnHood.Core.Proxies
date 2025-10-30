@@ -143,9 +143,7 @@ public class Socks5ProxyClient(
         await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
 
         if (response[0] != 5)
-        {
             throw new ProtocolViolationException($"Invalid SOCKS version in response: {response[0]}");
-        }
 
         var selectedMethod = (Socks5AuthenticationType)response[1];
         logger?.LogDebug("Server selected authentication method: {Method}", selectedMethod);
@@ -184,14 +182,10 @@ public class Socks5ProxyClient(
         await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
 
         if (response[0] != 1)
-        {
             throw new ProtocolViolationException($"Invalid username/password auth version: {response[0]}");
-        }
 
         if (response[1] != 0)
-        {
             throw new UnauthorizedAccessException("Username/password authentication failed");
-        }
 
         logger?.LogDebug("Username/password authentication successful");
     }
@@ -201,9 +195,7 @@ public class Socks5ProxyClient(
         var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.Connect, destination, cancellationToken).ConfigureAwait(false);
         
         if (result.Reply != Socks5CommandReply.Succeeded)
-        {
             throw MapSocksErrorToException(result.Reply);
-        }
     }
 
     private static async Task<Socks5CommandResult> SendCommandAndReadReplyAsync(NetworkStream stream, Socks5Command command, IPEndPoint destination, CancellationToken cancellationToken)
@@ -234,9 +226,7 @@ public class Socks5ProxyClient(
         await stream.ReadExactlyAsync(responseHeader, cancellationToken).ConfigureAwait(false);
 
         if (responseHeader[0] != 5)
-        {
             throw new ProtocolViolationException($"Invalid SOCKS version in reply: {responseHeader[0]}");
-        }
 
         var reply = (Socks5CommandReply)responseHeader[1];
         var replyAddressType = (Socks5AddressType)responseHeader[3];
@@ -362,14 +352,10 @@ public class Socks5ProxyClient(
     public static Socks5Endpoint ParseUdpResponse(ReadOnlySpan<byte> datagram, out ReadOnlySpan<byte> payload)
     {
         if (datagram.Length < 7)
-        {
             throw new ArgumentException("Datagram too short for SOCKS5 UDP response", nameof(datagram));
-        }
         
         if (datagram[0] != 0 || datagram[1] != 0 || datagram[2] != 0)
-        {
             throw new NotSupportedException("Fragmented or malformed SOCKS5 UDP packet");
-        }
 
         var addressType = (Socks5AddressType)datagram[3];
         var offset = 4;
