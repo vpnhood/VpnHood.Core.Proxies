@@ -60,10 +60,10 @@ public class HttpProxyClientTests
         var client = new HttpProxyClient(clientOptions);
         using var tcp = new TcpClient();
 
-        await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
-        {
-            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
-        });
+        var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() => 
+            client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None)
+        );
+        Assert.AreEqual(SocketError.AccessDenied, ex.SocketErrorCode);
     }
 
     [TestMethod]
@@ -108,10 +108,10 @@ public class HttpProxyClientTests
         var client = new HttpProxyClient(clientOptions);
         using var tcp = new TcpClient();
 
-        await Assert.ThrowsExceptionAsync<HttpRequestException>(async () =>
-        {
-            await client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None);
-        });
+        var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() =>
+            client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None)
+        );
+        Assert.AreEqual(SocketError.AccessDenied, ex.SocketErrorCode);
     }
 
     [TestMethod]

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -177,7 +177,7 @@ public class HttpProxyClient(
                 }
             }
             
-            throw new IOException("HTTP proxy response headers too large");
+            throw new ProxyClientException(SocketError.ProtocolNotSupported, "HTTP proxy response headers too large");
         }
         catch (OperationCanceledException) when (timeout.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested) {
             throw new TimeoutException("Timeout waiting for proxy response");
@@ -186,33 +186,57 @@ public class HttpProxyClient(
 
     private static void ValidateConnectResponse(string responseText)
     {
-        // Remove any BOM that might be present
-        if (responseText.StartsWith('\ufeff'))
+        if (string.IsNullOrWhiteSpace(responseText))
+            throw new ProxyClientException(SocketError.ProtocolNotSupported, "Empty or non-HTTP response");
+
+        // Remove BOM if present
+        if (responseText[0] == '\ufeff')
             responseText = responseText[1..];
 
-        var lines = responseText.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length == 0)
-            throw new IOException("Empty HTTP proxy response");
-        
-        var statusLine = lines[0];
-        var statusParts = statusLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-        
-        if (statusParts.Length < 2)
-            throw new IOException($"Invalid HTTP proxy status line: {statusLine}");
-        
-        if (!statusParts[0].StartsWith("HTTP/", StringComparison.OrdinalIgnoreCase))
-            throw new IOException($"Invalid HTTP version in proxy response: {statusParts[0]}");
-        
-        if (!int.TryParse(statusParts[1], out var statusCode))
-            throw new IOException($"Invalid HTTP status code in proxy response: {statusParts[1]}");
-        
-        if (statusCode != 200)
-        {
-            var reasonPhrase = statusParts.Length > 2 ? statusParts[2] : "Unknown";
-            throw new HttpRequestException(
-                $"HTTP proxy CONNECT failed with status {statusCode}: {reasonPhrase}", 
-                null, 
-                (HttpStatusCode)statusCode);
-        }
+        if (!responseText.StartsWith("HTTP/", StringComparison.OrdinalIgnoreCase))
+            throw new ProxyClientException(SocketError.ProtocolNotSupported, "Not an HTTP proxy");
+
+        var lines = responseText.Split(new[] { "\r\n" }, StringSplitOptions.None);
+        var parts = lines[0].Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var code))
+            throw new ProxyClientException(SocketError.ProtocolNotSupported, "Malformed HTTP status line");
+
+        if (code == 200)
+            return;
+
+        var reason = parts.Length > 2 ? parts[2] : "Unknown";
+
+        throw code switch {
+            // Valid proxy, needs or failed auth
+            407 => new ProxyClientException(SocketError.AccessDenied,
+                $"Proxy authentication required or failed (status {code}: {reason})"),
+
+            // Proxy timeout (client-side or idle)
+            408 => new ProxyClientException(SocketError.TimedOut,
+                $"Proxy connection timed out (status {code}: {reason})"),
+
+            // Target or proxy host not found
+            404 => new ProxyClientException(SocketError.HostNotFound,
+                $"HTTP proxy or target not found (status {code}: {reason})"),
+
+            // CONNECT disallowed or plain HTTP server
+            400 or 401 or 403 or 405 => new ProxyClientException(SocketError.ProtocolNotSupported,
+                $"HTTP server does not support CONNECT (status {code}: {reason})"),
+
+            // Upstream errors: proxy could not reach target
+            500 or 502 or 503 or 504 => new ProxyClientException(SocketError.HostUnreachable,
+                $"Proxy failed to connect to target (status {code}: {reason})"),
+
+            // Rate limits or custom non-standard responses
+            429 => new ProxyClientException(SocketError.TryAgain,
+                $"Proxy rate limited request (status {code}: {reason})"),
+
+            // Everything else: generic proxy failure
+            _ => new ProxyClientException(SocketError.SocketError,
+                $"Unexpected HTTP proxy response (status {code}: {reason})")
+        };
+
     }
+
+
 }

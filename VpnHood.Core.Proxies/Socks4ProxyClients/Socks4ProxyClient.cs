@@ -9,8 +9,8 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
 {
     public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
 
-    public async Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
-        => await ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken).ConfigureAwait(false);
+    public Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
+        => ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken);
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
