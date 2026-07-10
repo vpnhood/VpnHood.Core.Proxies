@@ -19,6 +19,11 @@ internal static class ProxyStreamPump
     /// one idle peer retain the whole tunnel (buffers, sockets, tasks, handler state) — fatal
     /// under tight memory limits such as an iOS Network Extension.
     /// </summary>
+    /// <param name="clientStream">Stream to/from the proxy client.</param>
+    /// <param name="remoteStream">Stream to/from the destination host.</param>
+    /// <param name="halfCloseTimeout">How long the surviving direction may keep draining after
+    /// the first direction reaches EOF.</param>
+    /// <param name="cancellationToken">Cancels both directions and tears the tunnel down.</param>
     /// <param name="clientSocket">Socket behind <paramref name="clientStream"/>; only needed when the
     /// stream does not expose it itself (e.g. SslStream). Derived automatically for NetworkStream.</param>
     /// <param name="remoteSocket">Same for <paramref name="remoteStream"/>.</param>
