@@ -3,8 +3,7 @@ using System.Net.Sockets;
 
 namespace VpnHood.Core.Proxies.Test.TestHelpers;
 
-internal sealed class EchoServer : IDisposable
-{
+internal sealed class EchoServer : IDisposable {
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
 
@@ -26,7 +25,9 @@ internal sealed class EchoServer : IDisposable
                 _ = Task.Run(() => HandleClientAsync(client));
             }
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     private static async Task HandleClientAsync(TcpClient client)
@@ -41,13 +42,22 @@ internal sealed class EchoServer : IDisposable
                 await stream.WriteAsync(buf.AsMemory(0, n));
             }
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     public void Dispose()
     {
-        try { _cts.Cancel(); } catch { }
-        try { _listener.Stop(); } catch { }
+        try { _cts.Cancel(); }
+        catch {
+            // ignored
+        }
+
+        try { _listener.Stop(); }
+        catch {
+            // ignored
+        }
         _cts.Dispose();
     }
 }

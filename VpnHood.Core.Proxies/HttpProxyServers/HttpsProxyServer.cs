@@ -30,7 +30,7 @@ public sealed class HttpsProxyServer(
             var networkStream = tcpClient.GetStream();
 
             // Establish TLS connection
-            using var sslStream = new SslStream(networkStream, leaveInnerStreamOpen: false);
+            await using var sslStream = new SslStream(networkStream, leaveInnerStreamOpen: false);
 
             Logger.LogDebug("Establishing TLS connection with {ClientEndpoint}", clientEndpointAddress);
 

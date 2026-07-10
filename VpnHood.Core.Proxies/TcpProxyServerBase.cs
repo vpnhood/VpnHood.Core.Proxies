@@ -13,7 +13,7 @@ public abstract class TcpProxyServerBase(
 ) : IDisposable
 {
     protected readonly ILogger Logger = logger ?? NullLogger.Instance;
-    private readonly object _startStopLock = new();
+    private readonly Lock _startStopLock = new();
     private CancellationTokenSource? _serverCts;
     private bool _disposed;
     private int _connectionCount;

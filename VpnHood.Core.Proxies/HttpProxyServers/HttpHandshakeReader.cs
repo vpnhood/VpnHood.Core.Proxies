@@ -45,7 +45,7 @@ internal sealed class HttpHandshakeReader(Stream stream) : IDisposable
                     throw new ProtocolViolationException("HTTP header line too long");
 
                 // Latin-1: a 1:1 byte-to-char mapping, so malformed non-ASCII bytes cannot
-                // corrupt the parse the way a multi-byte decoder could
+                // corrupt the parse the way a multibyte decoder could
                 var line = Encoding.Latin1.GetString(lineSpan);
                 _start = newlineIndex + 1;
                 return line;

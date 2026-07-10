@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using VpnHood.Core.Proxies.HttpProxyClients;
 using VpnHood.Core.Proxies.HttpProxyServers;
 using VpnHood.Core.Proxies.Test.TestHelpers;
+// ReSharper disable AccessToDisposedClosure
 
 namespace VpnHood.Core.Proxies.Test;
 
@@ -162,11 +163,10 @@ public class HttpProxyClientTests
 
         var stubProxyTask = Task.Run(async () =>
         {
-            // ReSharper disable once AccessToDisposedClosure
             using var accepted = await listener.AcceptTcpClientAsync(cts.Token);
             var stream = accepted.GetStream();
 
-            // read request headers until CRLFCRLF
+            // read request headers until CRLF CRLF
             var bytes = new List<byte>();
             var one = new byte[1];
             while (true)

@@ -35,7 +35,9 @@ internal sealed class HttpOriginServer : IDisposable
                 _ = Task.Run(() => HandleClientAsync(client));
             }
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     private async Task HandleClientAsync(TcpClient client)
@@ -77,13 +79,19 @@ internal sealed class HttpOriginServer : IDisposable
             var response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"u8.ToArray();
             await stream.WriteAsync(response, _cts.Token);
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     public void Dispose()
     {
-        try { _cts.Cancel(); } catch { }
-        try { _listener.Stop(); } catch { }
+        try { _cts.Cancel(); } catch {
+            // ignored
+        }
+        try { _listener.Stop(); } catch {
+            // ignored
+        }
         _cts.Dispose();
     }
 }
