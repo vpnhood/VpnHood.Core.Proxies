@@ -125,7 +125,7 @@ internal static class Program
         await client.ConnectAsync(tcp, targetHost, targetPort, CancellationToken.None);
         Console.WriteLine("Connected successfully!");
 
-        await SendAndReceiveData(tcp, targetHost, data);
+        await SendAndReceiveData(client.GetStream(tcp), targetHost, data);
     }
 
     private static async Task TestHttpsProxy(Dictionary<string, string> options)
@@ -157,7 +157,8 @@ internal static class Program
         await client.ConnectAsync(tcp, targetHost, targetPort, CancellationToken.None);
         Console.WriteLine("Connected successfully!");
 
-        await SendAndReceiveData(tcp, targetHost, data);
+        // the tunnel runs inside the TLS stream to the proxy
+        await SendAndReceiveData(client.GetStream(tcp), targetHost, data);
     }
 
     private static async Task TestSocks4Proxy(Dictionary<string, string> options)
@@ -183,7 +184,7 @@ internal static class Program
         await client.ConnectAsync(tcp, targetHost, targetPort, CancellationToken.None);
         Console.WriteLine("Connected successfully!");
 
-        await SendAndReceiveData(tcp, targetHost, data);
+        await SendAndReceiveData(tcp.GetStream(), targetHost, data);
     }
 
     private static async Task TestSocks5Proxy(Dictionary<string, string> options)
@@ -211,13 +212,11 @@ internal static class Program
         await client.ConnectAsync(tcp, targetHost, targetPort, CancellationToken.None);
         Console.WriteLine("Connected successfully!");
 
-        await SendAndReceiveData(tcp, targetHost, data);
+        await SendAndReceiveData(tcp.GetStream(), targetHost, data);
     }
 
-    private static async Task SendAndReceiveData(TcpClient tcp, string targetHost, string data)
+    private static async Task SendAndReceiveData(Stream stream, string targetHost, string data)
     {
-        var stream = tcp.GetStream();
-        
         // Replace {host} placeholder
         var finalData = data.Replace("{host}", targetHost);
         

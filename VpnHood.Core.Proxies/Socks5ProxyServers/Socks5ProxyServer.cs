@@ -10,11 +10,17 @@ namespace VpnHood.Core.Proxies.Socks5ProxyServers;
 public sealed class Socks5ProxyServer(
     Socks5ProxyServerOptions options,
     ILogger<Socks5ProxyServer>? logger = null)
-    : TcpProxyServerBase(options.ListenEndPoint, options.Backlog, logger)
+    : TcpProxyServerBase(options.ListenEndPoint, options.Backlog, options.MaxConnections, logger)
 {
+    // Bounds for the per-association UDP destination table. A client can keep one association
+    // open indefinitely and contact ever more endpoints; without a cap the table (and therefore
+    // memory) would grow without limit.
+    private const int MaxUdpDestinations = 2048;
+    private static readonly TimeSpan UdpDestinationIdleTimeout = TimeSpan.FromSeconds(60);
+
     protected override async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        var clientEndpoint = client.Client.RemoteEndPoint as IPEndPoint ?? new IPEndPoint(IPAddress.None, 0);
+        var clientEndpoint = TryGetRemoteEndPoint(client) ?? new IPEndPoint(IPAddress.None, 0);
         Logger.LogDebug("Handling SOCKS5 client connection from {ClientEndpoint}", clientEndpoint);
 
         try
@@ -41,22 +47,8 @@ public sealed class Socks5ProxyServer(
                     }
                 case Socks5Command.UdpAssociate:
                     {
-                        var udpResult = await HandleUdpAssociateCommandAsync(networkStream, client,
+                        await HandleUdpAssociateCommandAsync(networkStream, client,
                             handshakeResult.RequestHeader.AddressType, clientEndpoint, cancellationToken).ConfigureAwait(false);
-
-                        await SendReplyAsync(networkStream, Socks5CommandReply.Succeeded, udpResult.BindAddress,
-                            udpResult.BindPort, cancellationToken).ConfigureAwait(false);
-
-                        // Keep the TCP connection open until the client closes it
-                        var buffer = new byte[1];
-                        try
-                        {
-                            _ = await networkStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogDebug(ex, "TCP connection closed for UDP associate with {ClientEndpoint}", clientEndpoint);
-                        }
                         break;
                     }
                 default:
@@ -89,10 +81,10 @@ public sealed class Socks5ProxyServer(
             var authType = await NegotiateAuthAsync(networkStream, requireAuth: options.Username != null, handshakeCts.Token).ConfigureAwait(false);
             if (authType == Socks5AuthenticationType.UsernamePassword)
             {
-                var authResult = await HandleUserPassAuthAsync(networkStream, options.Username!,
+                var authResult = await HandleUserPassAuthAsync(networkStream, options.Username,
                     options.Password ?? string.Empty, handshakeCts.Token).ConfigureAwait(false);
 
-                Logger.LogDebug("Authentication result for {ClientEndpoint}", clientEndpoint);
+                Logger.LogDebug("Authentication result for {ClientEndpoint}: {AuthResult}", clientEndpoint, authResult);
                 if (!authResult)
                     return Socks5HandshakeResult.Invalid;
             }
@@ -170,7 +162,7 @@ public sealed class Socks5ProxyServer(
         return selectedAuthType;
     }
 
-    private static async Task<bool> HandleUserPassAuthAsync(NetworkStream stream, string expectedUsername, string expectedPassword, CancellationToken cancellationToken)
+    private static async Task<bool> HandleUserPassAuthAsync(NetworkStream stream, string? expectedUsername, string expectedPassword, CancellationToken cancellationToken)
     {
         // Read version
         var version = new byte[1];
@@ -200,12 +192,14 @@ public sealed class Socks5ProxyServer(
         var passwordBytes = new byte[passwordLength];
         await stream.ReadExactlyAsync(passwordBytes, cancellationToken).ConfigureAwait(false);
 
-        // Validate credentials
+        // Validate credentials; when the server has no credentials configured, any client
+        // credentials are accepted (the client just insisted on the user/pass method)
         var username = Encoding.UTF8.GetString(usernameBytes);
         var password = Encoding.UTF8.GetString(passwordBytes);
 
-        var isValid = string.Equals(username, expectedUsername, StringComparison.Ordinal) &&
-                     string.Equals(password, expectedPassword, StringComparison.Ordinal);
+        var isValid = expectedUsername == null ||
+                      (string.Equals(username, expectedUsername, StringComparison.Ordinal) &&
+                       string.Equals(password, expectedPassword, StringComparison.Ordinal));
 
         // Send response
         await stream.WriteAsync(new byte[] { 1, (byte)(isValid ? 0 : 0xFF) }, cancellationToken).ConfigureAwait(false);
@@ -253,7 +247,8 @@ public sealed class Socks5ProxyServer(
             Logger.LogDebug("Tunneling established between {ClientEndpoint} and {DestAddress}:{DestPort}", clientEndpoint, destinationAddress, destinationPort);
 
             var remoteStream = remoteClient.GetStream();
-            await PumpStreamsAsync(clientStream, remoteStream, cancellationToken).ConfigureAwait(false);
+            await ProxyStreamPump.PumpStreamsAsync(clientStream, remoteStream, options.TunnelHalfCloseTimeout,
+                cancellationToken, remoteSocket: remoteClient.Client).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -278,59 +273,71 @@ public sealed class Socks5ProxyServer(
         }
     }
 
-    private async Task<UdpAssociateResult> HandleUdpAssociateCommandAsync(NetworkStream stream, TcpClient controlTcpClient,
+    private async Task HandleUdpAssociateCommandAsync(NetworkStream stream, TcpClient controlTcpClient,
         Socks5AddressType addressType, IPEndPoint clientEndpoint, CancellationToken cancellationToken)
     {
-        // Read the client's UDP endpoint (maybe ignored) because client may be behind NAT
-        _ = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
+        // The client's declared UDP endpoint; all zeros means "unknown" (e.g., client behind NAT)
+        var declaredUdpEndpoint = await ReadDestinationAsync(stream, addressType, cancellationToken).ConfigureAwait(false);
+        var expectedClientUdpEndpoint = GetExpectedClientUdpEndpoint(declaredUdpEndpoint, clientEndpoint);
 
-        // Create UDP socket for communicating with the SOCKS5 client
-        var proxyUdpClient = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
+        // Create UDP socket for communicating with the SOCKS5 client; use the control
+        // connection's address family
+        var controlLocalEndPoint = (IPEndPoint)controlTcpClient.Client.LocalEndPoint!;
+        var bindAddress = controlLocalEndPoint.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any;
+        using var proxyUdpClient = new UdpClient(new IPEndPoint(bindAddress, 0));
         var localEndPoint = (IPEndPoint)proxyUdpClient.Client.LocalEndPoint!;
 
-        var relayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var relayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var relayTask = UdpRelayLoopAsync(proxyUdpClient, clientEndpoint, expectedClientUdpEndpoint, relayCts.Token);
 
-        // Start UDP relay and TCP monitor tasks
-        _ = UdpRelayLoopAsync(proxyUdpClient, clientEndpoint, relayCts.Token);
-        _ = MonitorTcpConnectionAsync(controlTcpClient, relayCts, proxyUdpClient);
+        // Reply with the server address the client already reached; 0.0.0.0 confuses clients
+        // that don't implement the RFC 1928 fallback
+        await SendReplyAsync(stream, Socks5CommandReply.Succeeded, controlLocalEndPoint.Address,
+            localEndPoint.Port, cancellationToken).ConfigureAwait(false);
 
         Logger.LogDebug("UDP associate established for {ClientEndpoint} on port {Port}", clientEndpoint, localEndPoint.Port);
 
-        return new UdpAssociateResult { BindAddress = IPAddress.Any, BindPort = localEndPoint.Port };
-    }
-
-    private async Task MonitorTcpConnectionAsync(TcpClient tcpClient, CancellationTokenSource cts, UdpClient udpClient)
-    {
+        // RFC 1928: the association lives as long as the TCP control connection. This is the
+        // only reader of the control stream; a read completes on close or cancellation.
         try
         {
             var buffer = new byte[1];
-            _ = await tcpClient.GetStream().ReadAsync(buffer, cts.Token).ConfigureAwait(false);
+            _ = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // TCP connection closed or error occurred
+            Logger.LogDebug(ex, "TCP connection closed for UDP associate with {ClientEndpoint}", clientEndpoint);
         }
         finally
         {
-            try
-            {
-                udpClient.Dispose();
-                await cts.CancelAsync();
-            }
-            catch (Exception exception)
-            {
-                Logger.LogError(exception, "Error during UDP associate cleanup");
-            }
-            finally
-            {
-                cts.Dispose();
-            }
+            await relayCts.CancelAsync().ConfigureAwait(false);
+            proxyUdpClient.Dispose();
+            try { await relayTask.ConfigureAwait(false); }
+            catch { /* relay errors are already logged */ }
         }
     }
 
-    private async Task UdpRelayLoopAsync(UdpClient proxyUdpClient, IPEndPoint clientEndpoint, CancellationToken cancellationToken)
+    // The declared endpoint may be all zeros (unknown) or carry only a port; fall back to the
+    // control connection's address in those cases
+    private static IPEndPoint? GetExpectedClientUdpEndpoint(IPEndPoint declared, IPEndPoint controlClientEndpoint)
     {
-        IPEndPoint? clientUdpEndpoint = null;
+        if (declared.Port == 0)
+            return null;
+
+        var address = declared.Address.Equals(IPAddress.Any) || declared.Address.Equals(IPAddress.IPv6Any)
+            ? controlClientEndpoint.Address
+            : declared.Address;
+
+        return new IPEndPoint(address, declared.Port);
+    }
+
+    private async Task UdpRelayLoopAsync(UdpClient proxyUdpClient, IPEndPoint clientEndpoint,
+        IPEndPoint? expectedClientUdpEndpoint, CancellationToken cancellationToken)
+    {
+        var clientUdpEndpoint = expectedClientUdpEndpoint;
+
+        // destination -> last-activity (Environment.TickCount64); bounded, see TouchDestination
+        var destinations = new Dictionary<IPEndPoint, long>();
 
         try
         {
@@ -342,16 +349,27 @@ public sealed class Socks5ProxyServer(
                 var sourceEndpoint = result.RemoteEndPoint;
                 var data = result.Buffer;
 
-                if (clientUdpEndpoint == null || sourceEndpoint.Equals(clientUdpEndpoint))
+                // When the client did not declare its UDP endpoint, the first datagram coming
+                // from the control connection's address claims the association
+                if (clientUdpEndpoint == null && sourceEndpoint.Address.Equals(clientEndpoint.Address))
+                    clientUdpEndpoint = sourceEndpoint;
+
+                if (sourceEndpoint.Equals(clientUdpEndpoint))
                 {
-                    // First packet or packet from client -> parse and forward to destination
-                    clientUdpEndpoint ??= sourceEndpoint;
-                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
+                    // Packet from client -> parse and forward to destination
+                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, clientUdpEndpoint!, destinations, cancellationToken).ConfigureAwait(false);
+                }
+                else if (clientUdpEndpoint != null && destinations.ContainsKey(sourceEndpoint))
+                {
+                    // Packet from a destination the client has contacted -> wrap and send back
+                    // to client; refresh the activity stamp so live flows survive pruning
+                    destinations[sourceEndpoint] = Environment.TickCount64;
+                    await HandleUdpDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
-                    // Packet from destination -> wrap and send back to client
-                    await HandleUdpDestinationToClientAsync(proxyUdpClient, data, sourceEndpoint, clientUdpEndpoint, clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
+                    // Unknown source; do not let third parties inject datagrams into the association
+                    Logger.LogDebug("Dropped UDP packet from unexpected source {Source} for {ClientEndpoint}", sourceEndpoint, clientEndpoint);
                 }
             }
         }
@@ -359,14 +377,35 @@ public sealed class Socks5ProxyServer(
         {
             Logger.LogDebug("UDP relay loop cancelled for {ClientEndpoint}", clientEndpoint);
         }
+        catch (ObjectDisposedException)
+        {
+            Logger.LogDebug("UDP relay socket closed for {ClientEndpoint}", clientEndpoint);
+        }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Error in UDP relay loop for {ClientEndpoint}", clientEndpoint);
         }
     }
 
+    // Registers a destination while keeping the table bounded: prune idle entries first,
+    // then evict the least-recently-active one if the cap is still exceeded.
+    private static void TouchDestination(Dictionary<IPEndPoint, long> destinations, IPEndPoint destination)
+    {
+        var now = Environment.TickCount64;
+        destinations[destination] = now;
+        if (destinations.Count <= MaxUdpDestinations)
+            return;
+
+        var idleThreshold = now - (long)UdpDestinationIdleTimeout.TotalMilliseconds;
+        foreach (var stale in destinations.Where(entry => entry.Value < idleThreshold).ToList())
+            destinations.Remove(stale.Key);
+
+        if (destinations.Count > MaxUdpDestinations)
+            destinations.Remove(destinations.MinBy(entry => entry.Value).Key);
+    }
+
     private async Task HandleUdpClientToDestinationAsync(UdpClient proxyUdpClient, byte[] data,
-        IPEndPoint clientUdpEndpoint, CancellationToken cancellationToken)
+        IPEndPoint clientUdpEndpoint, Dictionary<IPEndPoint, long> destinations, CancellationToken cancellationToken)
     {
         if (data.Length < 7 || data[0] != 0 || data[1] != 0 || data[2] != 0)
         {
@@ -410,8 +449,12 @@ public sealed class Socks5ProxyServer(
             var destinationPort = data[offset] << 8 | data[offset + 1];
             offset += 2;
 
+            // Remember the destination so its responses can be relayed back to the client
+            var destinationEndpoint = new IPEndPoint(destinationAddress, destinationPort);
+            TouchDestination(destinations, destinationEndpoint);
+
             // Avoid extra allocation/copy by sending a slice of the original buffer
-            _ = await proxyUdpClient.SendAsync(data.AsMemory(offset), new IPEndPoint(destinationAddress, destinationPort), cancellationToken).ConfigureAwait(false);
+            _ = await proxyUdpClient.SendAsync(data.AsMemory(offset), destinationEndpoint, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -419,30 +462,23 @@ public sealed class Socks5ProxyServer(
         }
     }
 
-    // Pseudocode:
-    // - Compute address bytes, header length, total length
-    // - Rent Memory<byte> from MemoryPool for total length
-    // - Fill SOCKS5 UDP header into span
-    // - Copy payload into span after header
-    // - Send ReadOnlyMemory<byte> via UdpClient.SendAsync
-    // - Dispose memory owner via using to return buffer to pool
     private async Task HandleUdpDestinationToClientAsync(
         UdpClient proxyUdpClient,
         byte[] data,
         IPEndPoint sourceEndpoint,
-        IPEndPoint clientEndpoint,
         IPEndPoint clientUdpEndpoint,
         CancellationToken cancellationToken)
     {
+        byte[]? packet = null;
         try
         {
             var addressBytes = sourceEndpoint.Address.GetAddressBytes();
             var headerLength = 3 + 1 + addressBytes.Length + 2;
             var totalLength = headerLength + data.Length;
 
-            using var owner = MemoryPool<byte>.Shared.Rent(totalLength);
-            var mem = owner.Memory[..totalLength];
-            var span = mem.Span;
+            // ArrayPool over MemoryPool: no owner object allocation per datagram
+            packet = ArrayPool<byte>.Shared.Rent(totalLength);
+            var span = packet.AsSpan(0, totalLength);
 
             // RSV + FRAG
             span[0] = 0;
@@ -465,7 +501,7 @@ public sealed class Socks5ProxyServer(
             // Payload
             data.AsSpan().CopyTo(span[headerLength..]);
 
-            await proxyUdpClient.SendAsync(mem, clientEndpoint, cancellationToken).ConfigureAwait(false);
+            await proxyUdpClient.SendAsync(packet.AsMemory(0, totalLength), clientUdpEndpoint, cancellationToken).ConfigureAwait(false);
 
             Logger.LogDebug(
                 "Relayed UDP response from {Source} to {ClientEndpoint}, payload size: {Size}, response size: {ResponseSize}",
@@ -477,49 +513,11 @@ public sealed class Socks5ProxyServer(
                 "Failed to relay UDP response from {Source} to client {ClientEndpoint}",
                 sourceEndpoint, clientUdpEndpoint);
         }
-    }
-
-    private static async Task PumpStreamsAsync(NetworkStream clientStream, NetworkStream remoteStream, CancellationToken cancellationToken)
-    {
-        const int bufferSize = 4096;
-        var tasks = new[]
-        {
-            CopyStreamAsync(clientStream, remoteStream, bufferSize, cancellationToken),
-            CopyStreamAsync(remoteStream, clientStream, bufferSize, cancellationToken)
-        };
-
-        try
-        {
-            await Task.WhenAny(tasks).ConfigureAwait(false);
-        }
         finally
         {
-            // Cancel remaining operations
-            await Task.WhenAll(tasks.Select(async task =>
-            {
-                try { await task.ConfigureAwait(false); }
-                catch { /* Ignore exceptions during cleanup */ }
-            })).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task CopyStreamAsync(Stream sourceStream, Stream destinationStream, int bufferSize, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[bufferSize];
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var bytesRead = await sourceStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (bytesRead == 0) break;
-
-                await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
-                // NetworkStream.FlushAsync is a no-op; avoid extra calls to reduce overhead
-            }
-        }
-        catch when (cancellationToken.IsCancellationRequested)
-        {
-            // Expected during cancellation
+            // safe to return here: SendAsync has completed (or failed) by now
+            if (packet is not null)
+                ArrayPool<byte>.Shared.Return(packet);
         }
     }
 
@@ -590,5 +588,4 @@ public sealed class Socks5ProxyServer(
                 ArrayPool<byte>.Shared.Return(response);
         }
     }
-
 }

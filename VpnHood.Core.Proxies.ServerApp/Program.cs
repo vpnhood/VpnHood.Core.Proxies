@@ -128,7 +128,7 @@ internal class Program
         X509Certificate2 cert;
         if (certPath != null && File.Exists(certPath))
         {
-            cert = new X509Certificate2(certPath);
+            cert = X509CertificateLoader.LoadPkcs12FromFile(certPath, password: null);
             Console.WriteLine($"Using certificate from: {certPath}");
         }
         else

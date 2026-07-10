@@ -130,4 +130,84 @@ public class HttpProxyClientTests
         await client.CheckConnectionAsync(tcp, CancellationToken.None);
         Assert.IsTrue(tcp.Connected);
     }
+
+    [TestMethod]
+    public async Task HttpProxy_Connect_ServerSpeaksFirst_BannerIsPreserved()
+    {
+        // regression: bytes the destination sends right after the tunnel opens (SMTP/SSH
+        // banners) must not be swallowed while reading the CONNECT response
+        var banner = "220 welcome to the banner server\r\n"u8.ToArray();
+        using var bannerServer = new BannerServer(IPAddress.Loopback, banner);
+        using var server = await StartHttpProxyAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var client = new HttpProxyClient(new HttpProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint });
+        using var tcp = new TcpClient();
+        await client.ConnectAsync(tcp, bannerServer.EndPoint.Address.ToString(), bannerServer.EndPoint.Port, cts.Token);
+
+        var stream = tcp.GetStream();
+        var buf = new byte[banner.Length];
+        await stream.ReadExactlyAsync(buf, cts.Token);
+        CollectionAssert.AreEqual(banner, buf);
+    }
+
+    [TestMethod]
+    public async Task HttpProxy_Connect_Accepts2xxResponse()
+    {
+        // RFC 9110: any 2xx response to CONNECT indicates success, not just 200
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var proxyEndPoint = (IPEndPoint)listener.LocalEndpoint;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var stubProxyTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync(cts.Token);
+            var stream = accepted.GetStream();
+
+            // read request headers until CRLFCRLF
+            var bytes = new List<byte>();
+            var one = new byte[1];
+            while (true)
+            {
+                var n = await stream.ReadAsync(one, cts.Token);
+                if (n == 0) return;
+                bytes.Add(one[0]);
+                if (bytes.Count >= 4 &&
+                    bytes[^4] == '\r' && bytes[^3] == '\n' &&
+                    bytes[^2] == '\r' && bytes[^1] == '\n')
+                    break;
+            }
+
+            await stream.WriteAsync("HTTP/1.1 202 Accepted\r\n\r\n"u8.ToArray(), cts.Token);
+
+            // echo tunneled data afterwards
+            var buf = new byte[1024];
+            while (true)
+            {
+                var n = await stream.ReadAsync(buf, cts.Token);
+                if (n <= 0) break;
+                await stream.WriteAsync(buf.AsMemory(0, n), cts.Token);
+            }
+        }, cts.Token);
+
+        try
+        {
+            var client = new HttpProxyClient(new HttpProxyClientOptions { ProxyEndPoint = proxyEndPoint });
+            using var tcp = new TcpClient();
+            await client.ConnectAsync(tcp, "example.com", 443, cts.Token);
+
+            var stream = tcp.GetStream();
+            var payload = "abc"u8.ToArray();
+            await stream.WriteAsync(payload, cts.Token);
+            var echoed = new byte[payload.Length];
+            await stream.ReadExactlyAsync(echoed, cts.Token);
+            CollectionAssert.AreEqual(payload, echoed);
+        }
+        finally
+        {
+            listener.Stop();
+            try { await stubProxyTask; } catch { /* listener stopped */ }
+        }
+    }
 }

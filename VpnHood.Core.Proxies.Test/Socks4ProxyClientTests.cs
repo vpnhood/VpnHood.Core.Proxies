@@ -34,4 +34,28 @@ public class Socks4ProxyClientTests
             listener.Stop();
         }
     }
+
+    [TestMethod]
+    public async Task Socks4_Connect_IPv6Destination_Throws()
+    {
+        // SOCKS4 has no IPv6 support; the client must fail fast instead of silently
+        // sending the address as a SOCKS4a host name
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+
+        try
+        {
+            var options = new Socks4ProxyClientOptions { ProxyEndPoint = (IPEndPoint)listener.LocalEndpoint };
+            var client = new Socks4ProxyClient(options);
+            using var tcp = new TcpClient();
+
+            var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() =>
+                client.ConnectAsync(tcp, new IPEndPoint(IPAddress.IPv6Loopback, 80), CancellationToken.None));
+            Assert.AreEqual(SocketError.AddressFamilyNotSupported, ex.SocketErrorCode);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
 }

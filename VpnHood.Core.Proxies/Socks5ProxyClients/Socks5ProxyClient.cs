@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using VpnHood.Core.Proxies.Socks5Proxy;
@@ -7,11 +8,14 @@ using VpnHood.Core.Proxies.Socks5Proxy;
 namespace VpnHood.Core.Proxies.Socks5ProxyClients;
 
 public class Socks5ProxyClient(
-    Socks5ProxyClientOptions options, 
+    Socks5ProxyClientOptions options,
     ILogger<Socks5ProxyClient>? logger = null)
     : IProxyClient
 {
-    private bool _isAuthenticated;
+    // The SOCKS5 method negotiation belongs to a connection, not to this client instance,
+    // so track it per TcpClient. Entries disappear with their TcpClient.
+    private readonly ConditionalWeakTable<TcpClient, object> _authenticatedConnections = new();
+
     public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
@@ -20,25 +24,37 @@ public class Socks5ProxyClient(
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
 
-        try {
-            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
-            var ipAddress = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses[0];
+        // IP literals are sent as-is; host names are sent as SOCKS5 domain addresses so the
+        // proxy resolves them remotely (no local DNS lookup or leak)
+        if (IPAddress.TryParse(host, out var ipAddress)) {
             await ConnectAsync(tcpClient, new IPEndPoint(ipAddress, port), cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        logger?.LogDebug("Connecting to {Host}:{Port} through SOCKS5 proxy {ProxyEndPoint}", host, port, ProxyEndPoint);
+
+        try {
+            var stream = await GetAuthenticatedStreamAsync(tcpClient, cancellationToken).ConfigureAwait(false);
+            var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.Connect, host, null, port, cancellationToken).ConfigureAwait(false);
+            if (result.Reply != Socks5CommandReply.Succeeded)
+                throw MapSocksErrorToException(result.Reply);
+
+            logger?.LogDebug("SOCKS5 CONNECT tunnel established to {Host}:{Port}", host, port);
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to resolve or connect to {Host}:{Port}", host, port);
+            logger?.LogError(ex, "Failed to connect to {Host}:{Port} through SOCKS5 proxy", host, port);
+            tcpClient.Close();
             throw;
         }
     }
 
     public async Task CheckConnectionAsync(TcpClient tcpClient, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(tcpClient);
+
         try {
-            tcpClient.NoDelay = true;
-            await tcpClient.ConnectAsync(ProxyEndPoint, cancellationToken).ConfigureAwait(false);
-            var stream = tcpClient.GetStream();
-            await EnsureAuthenticatedAsync(stream, cancellationToken).ConfigureAwait(false);
+            await GetAuthenticatedStreamAsync(tcpClient, cancellationToken).ConfigureAwait(false);
         }
         catch {
             tcpClient.Close();
@@ -54,15 +70,11 @@ public class Socks5ProxyClient(
         logger?.LogDebug("Connecting to {Destination} through SOCKS5 proxy {ProxyEndPoint}", destination, ProxyEndPoint);
 
         try {
-            if (!tcpClient.Connected) {
-                tcpClient.NoDelay = true;
-                await tcpClient.ConnectAsync(ProxyEndPoint, cancellationToken).ConfigureAwait(false);
-            }
+            var stream = await GetAuthenticatedStreamAsync(tcpClient, cancellationToken).ConfigureAwait(false);
+            var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.Connect, null, destination.Address, destination.Port, cancellationToken).ConfigureAwait(false);
+            if (result.Reply != Socks5CommandReply.Succeeded)
+                throw MapSocksErrorToException(result.Reply);
 
-            var stream = tcpClient.GetStream();
-            await EnsureAuthenticatedAsync(stream, cancellationToken).ConfigureAwait(false);
-            await PerformConnectAsync(stream, destination, cancellationToken).ConfigureAwait(false);
-            
             logger?.LogDebug("SOCKS5 CONNECT tunnel established to {Destination}", destination);
         }
         catch (Exception ex)
@@ -83,16 +95,12 @@ public class Socks5ProxyClient(
         logger?.LogDebug("Creating UDP associate through SOCKS5 proxy");
 
         try {
-            if (!tcpClient.Connected) {
-                tcpClient.NoDelay = true;
-                await tcpClient.ConnectAsync(ProxyEndPoint, cancellationToken).ConfigureAwait(false);
-            }
-
-            var stream = tcpClient.GetStream();
-            await EnsureAuthenticatedAsync(stream, cancellationToken).ConfigureAwait(false);
+            var stream = await GetAuthenticatedStreamAsync(tcpClient, cancellationToken).ConfigureAwait(false);
 
             var endpointToSend = clientUdpEndPoint ?? new IPEndPoint(IPAddress.Any, 0);
-            var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.UdpAssociate, endpointToSend, cancellationToken).ConfigureAwait(false);
+            var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.UdpAssociate, null, endpointToSend.Address, endpointToSend.Port, cancellationToken).ConfigureAwait(false);
+            if (result.Reply != Socks5CommandReply.Succeeded)
+                throw MapSocksErrorToException(result.Reply);
 
             var boundAddress = result.BoundEndpoint.Address;
             if (boundAddress == null)
@@ -107,22 +115,31 @@ public class Socks5ProxyClient(
 
             var udpEndpoint = new IPEndPoint(resultAddress, result.BoundEndpoint.Port);
             logger?.LogDebug("UDP associate established on {UdpEndpoint}", udpEndpoint);
-            
+
             return udpEndpoint;
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Failed to create UDP associate through SOCKS5 proxy");
+            tcpClient.Close();
             throw;
         }
     }
 
-    private async Task EnsureAuthenticatedAsync(NetworkStream stream, CancellationToken cancellationToken)
+    private async Task<NetworkStream> GetAuthenticatedStreamAsync(TcpClient tcpClient, CancellationToken cancellationToken)
     {
-        if (_isAuthenticated) return;
+        if (!tcpClient.Connected) {
+            tcpClient.NoDelay = true;
+            await tcpClient.ConnectAsync(ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+        }
 
-        await PerformAuthenticationAsync(stream, cancellationToken).ConfigureAwait(false);
-        _isAuthenticated = true;
+        var stream = tcpClient.GetStream();
+        if (!_authenticatedConnections.TryGetValue(tcpClient, out _)) {
+            await PerformAuthenticationAsync(stream, cancellationToken).ConfigureAwait(false);
+            _authenticatedConnections.AddOrUpdate(tcpClient, new object());
+        }
+
+        return stream;
     }
 
     private async Task PerformAuthenticationAsync(NetworkStream stream, CancellationToken cancellationToken)
@@ -131,7 +148,7 @@ public class Socks5ProxyClient(
 
         // Send authentication methods
         var hasCredentials = !string.IsNullOrEmpty(options.Username);
-        var methods = hasCredentials 
+        var methods = hasCredentials
             ? new byte[] { 5, 2, (byte)Socks5AuthenticationType.NoAuthenticationRequired, (byte)Socks5AuthenticationType.UsernamePassword }
             : new byte[] { 5, 1, (byte)Socks5AuthenticationType.NoAuthenticationRequired };
 
@@ -190,33 +207,37 @@ public class Socks5ProxyClient(
         logger?.LogDebug("Username/password authentication successful");
     }
 
-    private static async Task PerformConnectAsync(NetworkStream stream, IPEndPoint destination, CancellationToken cancellationToken)
+    private static async Task<Socks5CommandResult> SendCommandAndReadReplyAsync(NetworkStream stream, Socks5Command command,
+        string? host, IPAddress? address, int port, CancellationToken cancellationToken)
     {
-        var result = await SendCommandAndReadReplyAsync(stream, Socks5Command.Connect, destination, cancellationToken).ConfigureAwait(false);
-        
-        if (result.Reply != Socks5CommandReply.Succeeded)
-            throw MapSocksErrorToException(result.Reply);
-    }
+        // Build destination address (ATYP + address bytes)
+        byte addressType;
+        byte[] addressBytes;
+        if (address is not null) {
+            addressType = GetAddressType(address.AddressFamily);
+            addressBytes = address.GetAddressBytes();
+        }
+        else {
+            var hostBytes = Encoding.UTF8.GetBytes(host ?? throw new ArgumentNullException(nameof(host)));
+            if (hostBytes.Length > 255)
+                throw new ArgumentException("Host name exceeds maximum length of 255 bytes.", nameof(host));
 
-    private static async Task<Socks5CommandResult> SendCommandAndReadReplyAsync(NetworkStream stream, Socks5Command command, IPEndPoint destination, CancellationToken cancellationToken)
-    {
-        // Build and send request
-        var addressType = GetAddressType(destination.AddressFamily);
-        var addressBytes = destination.Address.GetAddressBytes();
-        var portBytes = BitConverter.GetBytes((ushort)destination.Port);
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(portBytes);
+            addressType = (byte)Socks5AddressType.DomainName;
+            addressBytes = new byte[1 + hostBytes.Length];
+            addressBytes[0] = (byte)hostBytes.Length;
+            hostBytes.CopyTo(addressBytes, 1);
         }
 
+        // Build and send request
         var request = new byte[4 + addressBytes.Length + 2];
         request[0] = 5; // Version
         request[1] = (byte)command;
         request[2] = 0; // Reserved
         request[3] = addressType;
-        
+
         addressBytes.CopyTo(request, 4);
-        portBytes.CopyTo(request, 4 + addressBytes.Length);
+        request[4 + addressBytes.Length] = (byte)(port >> 8);
+        request[5 + addressBytes.Length] = (byte)(port & 0xFF);
 
         await stream.WriteAsync(request, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -233,7 +254,7 @@ public class Socks5ProxyClient(
 
         // Read bound address and port
         var boundEndpoint = await ReadAddressPortAsync(stream, replyAddressType, cancellationToken).ConfigureAwait(false);
-        
+
         return new Socks5CommandResult(command, reply, boundEndpoint);
     }
 
@@ -259,13 +280,13 @@ public class Socks5ProxyClient(
                 var lengthBuffer = new byte[1];
                 await stream.ReadExactlyAsync(lengthBuffer, cancellationToken).ConfigureAwait(false);
                 var domainLength = lengthBuffer[0];
-                
+
                 var domainBuffer = new byte[domainLength + 2];
                 await stream.ReadExactlyAsync(domainBuffer, cancellationToken).ConfigureAwait(false);
-                
+
                 var domain = Encoding.UTF8.GetString(domainBuffer.AsSpan(0, domainLength));
                 var domainPort = domainBuffer[domainLength] << 8 | domainBuffer[domainLength + 1];
-                
+
                 return new Socks5Endpoint(domain, null, domainPort);
 
             default:
@@ -284,12 +305,12 @@ public class Socks5ProxyClient(
     {
         var usernameBytes = Encoding.UTF8.GetBytes(username);
         var passwordBytes = Encoding.UTF8.GetBytes(password);
-        
+
         if (usernameBytes.Length > 255)
         {
             throw new ArgumentException("Username exceeds maximum length of 255 bytes", nameof(username));
         }
-        
+
         if (passwordBytes.Length > 255)
         {
             throw new ArgumentException("Password exceeds maximum length of 255 bytes", nameof(password));
@@ -301,7 +322,7 @@ public class Socks5ProxyClient(
         usernameBytes.CopyTo(buffer, 2);
         buffer[2 + usernameBytes.Length] = (byte)passwordBytes.Length;
         passwordBytes.CopyTo(buffer, 3 + usernameBytes.Length);
-        
+
         return new Memory<byte>(buffer);
     }
 
@@ -321,11 +342,11 @@ public class Socks5ProxyClient(
     public static int WriteUdpRequest(Span<byte> destinationBuffer, IPEndPoint destination, ReadOnlySpan<byte> data)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        
+
         var addressBytes = destination.Address.GetAddressBytes();
         var addressType = GetAddressType(destination.AddressFamily);
         var requiredSize = 3 + 1 + addressBytes.Length + 2 + data.Length;
-        
+
         if (destinationBuffer.Length < requiredSize)
         {
             throw new ArgumentException($"Destination buffer too small. Required: {requiredSize}, Available: {destinationBuffer.Length}", nameof(destinationBuffer));
@@ -336,16 +357,16 @@ public class Socks5ProxyClient(
         destinationBuffer[offset++] = 0; // Reserved
         destinationBuffer[offset++] = 0; // Fragment
         destinationBuffer[offset++] = addressType;
-        
+
         addressBytes.CopyTo(destinationBuffer[offset..]);
         offset += addressBytes.Length;
-        
+
         destinationBuffer[offset++] = (byte)(destination.Port >> 8);
         destinationBuffer[offset++] = (byte)(destination.Port & 0xFF);
-        
+
         data.CopyTo(destinationBuffer[offset..]);
         offset += data.Length;
-        
+
         return offset;
     }
 
@@ -353,16 +374,16 @@ public class Socks5ProxyClient(
     {
         if (datagram.Length < 7)
             throw new ArgumentException("Datagram too short for SOCKS5 UDP response", nameof(datagram));
-        
+
         if (datagram[0] != 0 || datagram[1] != 0 || datagram[2] != 0)
             throw new NotSupportedException("Fragmented or malformed SOCKS5 UDP packet");
 
         var addressType = (Socks5AddressType)datagram[3];
         var offset = 4;
-        
+
         string? host = null;
         IPAddress? address = null;
-        
+
         switch (addressType)
         {
             case Socks5AddressType.IpV4:
@@ -384,10 +405,10 @@ public class Socks5ProxyClient(
             default:
                 throw new NotSupportedException($"Unsupported address type in UDP response: {addressType}");
         }
-        
+
         var port = datagram[offset] << 8 | datagram[offset + 1];
         offset += 2;
-        
+
         payload = datagram[offset..];
         return new Socks5Endpoint(host, address, port);
     }

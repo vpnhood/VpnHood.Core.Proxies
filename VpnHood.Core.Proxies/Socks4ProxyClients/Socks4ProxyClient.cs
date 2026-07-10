@@ -10,18 +10,32 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
     public IPEndPoint ProxyEndPoint => options.ProxyEndPoint;
 
     public Task ConnectAsync(TcpClient tcpClient, IPEndPoint destination, CancellationToken cancellationToken)
-        => ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (destination.AddressFamily == AddressFamily.InterNetworkV6)
+            throw new ProxyClientException(SocketError.AddressFamilyNotSupported, "SOCKS4 only supports IPv4 addresses.");
+
+        return ConnectAsync(tcpClient, destination.Address.ToString(), destination.Port, cancellationToken);
+    }
 
     public async Task ConnectAsync(TcpClient tcpClient, string host, int port, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(tcpClient);
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(port);
+
         try {
-            if (!tcpClient.Connected)
+            if (!tcpClient.Connected) {
+                tcpClient.NoDelay = true;
                 await tcpClient.ConnectAsync(options.ProxyEndPoint, cancellationToken).ConfigureAwait(false);
+            }
 
             var stream = tcpClient.GetStream();
-            var isIp = IPAddress.TryParse(host, out var ipAddress) && ipAddress.AddressFamily == AddressFamily.InterNetwork;
-            if (!isIp) 
-                ipAddress = IPAddress.Parse("0.0.0.1");
+            var isIp = IPAddress.TryParse(host, out var ipAddress);
+            if (isIp && ipAddress!.AddressFamily == AddressFamily.InterNetworkV6)
+                throw new ProxyClientException(SocketError.AddressFamilyNotSupported, "SOCKS4 only supports IPv4 addresses.");
+            if (!isIp)
+                ipAddress = IPAddress.Parse("0.0.0.1"); // SOCKS4a marker; host is sent separately
 
             var request = BuildRequest(ipAddress!, port, isIp ? null : host, options.UserName);
             await stream.WriteAsync(request, cancellationToken).ConfigureAwait(false);
@@ -29,6 +43,9 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
 
             var reply = new byte[8];
             await stream.ReadExactlyAsync(reply, cancellationToken).ConfigureAwait(false);
+            if (reply[0] != 0)
+                throw new ProxyClientException(SocketError.ProtocolNotSupported, $"Invalid SOCKS4 reply version: {reply[0]}");
+
             var code = (Socks4ReplyCode)reply[1];
             if (code != Socks4ReplyCode.RequestGranted)
                 ThrowSocks4Error(code);
@@ -54,7 +71,7 @@ public class Socks4ProxyClient(Socks4ProxyClientOptions options) : IProxyClient
     private static ReadOnlyMemory<byte> BuildRequest(IPAddress ip, int port, string? domainName, string? userId)
     {
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-            throw new ProxyClientException(SocketError.OperationNotSupported, "SOCKS4 only supports IPv4 addresses.");
+            throw new ProxyClientException(SocketError.AddressFamilyNotSupported, "SOCKS4 only supports IPv4 addresses.");
 
         var user = userId ?? string.Empty;
         var userBytes = Encoding.UTF8.GetBytes(user);
