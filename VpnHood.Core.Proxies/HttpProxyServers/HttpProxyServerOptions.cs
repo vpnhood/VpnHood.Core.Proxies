@@ -24,9 +24,10 @@ public class HttpProxyServerOptions
 
     /// <summary>
     /// Hard cap on concurrent client connections; connections beyond it are accepted and
-    /// immediately closed. The backstop against memory exhaustion on constrained hosts.
+    /// immediately closed. Unlimited by default — memory-constrained hosts (e.g. a mobile
+    /// network extension) should set an explicit cap sized to their budget.
     /// </summary>
-    public int MaxConnections { get; init; } = 1024;
+    public int MaxConnections { get; init; } = int.MaxValue;
 
     // For HTTPS proxy server (TLS between client and proxy)
     public X509Certificate2? ServerCertificate { get; init; }

@@ -18,7 +18,7 @@ Common properties:
 * Standalone and reusable — plain .NET, no VPN or VpnHood runtime required; the only dependency is `Microsoft.Extensions.Logging.Abstractions`
 * Fully asynchronous, cancellation-aware I/O; no blocking calls
 * Handshake and connect timeouts with sensible defaults ([options classes](VpnHood.Core.Proxies/Socks5ProxyServers/Socks5ProxyServerOptions.cs))
-* Built for memory-constrained hosts (mobile network extensions, small containers): every per-connection resource is bounded — `MaxConnections` cap, capped header sizes, bounded UDP destination tables, and a TCP half-close linger timeout so idle peers cannot retain tunnels indefinitely
+* Built for memory-constrained hosts (mobile network extensions, small containers): every per-connection resource is bounded — an optional `MaxConnections` cap (unlimited by default), capped header sizes, bounded UDP destination tables, and a TCP half-close linger timeout so idle peers cannot retain tunnels indefinitely
 * Correct TCP half-close: a peer that shuts down its send side still receives the full response through the tunnel
 * Low-allocation hot paths (`ArrayPool`, pooled tunnel buffers, spans)
 * Optional `Microsoft.Extensions.Logging` integration — pass an `ILogger`, or nothing
