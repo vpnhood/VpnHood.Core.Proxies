@@ -32,7 +32,9 @@ internal sealed class BannerServer : IDisposable
                 _ = Task.Run(() => HandleClientAsync(client));
             }
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     private async Task HandleClientAsync(TcpClient client)
@@ -49,13 +51,19 @@ internal sealed class BannerServer : IDisposable
                 await stream.WriteAsync(buf.AsMemory(0, n), _cts.Token);
             }
         }
-        catch { }
+        catch {
+            // ignored
+        }
     }
 
     public void Dispose()
     {
-        try { _cts.Cancel(); } catch { }
-        try { _listener.Stop(); } catch { }
+        try { _cts.Cancel(); } catch {
+            // ignored
+        }
+        try { _listener.Stop(); } catch {
+            // ignored
+        }
         _cts.Dispose();
     }
 }

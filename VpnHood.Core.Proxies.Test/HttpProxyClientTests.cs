@@ -162,6 +162,7 @@ public class HttpProxyClientTests
 
         var stubProxyTask = Task.Run(async () =>
         {
+            // ReSharper disable once AccessToDisposedClosure
             using var accepted = await listener.AcceptTcpClientAsync(cts.Token);
             var stream = accepted.GetStream();
 

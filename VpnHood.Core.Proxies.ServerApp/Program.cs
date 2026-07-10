@@ -152,6 +152,7 @@ internal class Program
             Console.WriteLine($"Authentication required: {username}");
 
         using var cts = new CancellationTokenSource();
+        // ReSharper disable once AccessToDisposedClosure
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
         try

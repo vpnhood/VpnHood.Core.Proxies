@@ -106,7 +106,7 @@ public sealed class Socks5ProxyServer(
         }
     }
 
-    private async Task<Socks5AuthenticationType> NegotiateAuthAsync(NetworkStream stream, bool requireAuth, CancellationToken cancellationToken)
+    private static async Task<Socks5AuthenticationType> NegotiateAuthAsync(NetworkStream stream, bool requireAuth, CancellationToken cancellationToken)
     {
         // Read version and number of methods
         var header = new byte[2];
@@ -357,7 +357,7 @@ public sealed class Socks5ProxyServer(
                 if (sourceEndpoint.Equals(clientUdpEndpoint))
                 {
                     // Packet from client -> parse and forward to destination
-                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, clientUdpEndpoint!, destinations, cancellationToken).ConfigureAwait(false);
+                    await HandleUdpClientToDestinationAsync(proxyUdpClient, data, clientUdpEndpoint, destinations, cancellationToken).ConfigureAwait(false);
                 }
                 else if (clientUdpEndpoint != null && destinations.ContainsKey(sourceEndpoint))
                 {
