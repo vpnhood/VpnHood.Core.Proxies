@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Sockets;
 using VpnHood.Core.Proxies.HttpProxyClients;
 using VpnHood.Core.Proxies.HttpProxyServers;
-using VpnHood.Core.Proxies.Test.TestHelpers;
+using VpnHood.Core.Proxies.Tests.TestHelpers;
 // ReSharper disable AccessToDisposedClosure
 
-namespace VpnHood.Core.Proxies.Test;
+namespace VpnHood.Core.Proxies.Tests;
 
 [TestClass]
 public class HttpProxyClientTests
@@ -61,7 +61,7 @@ public class HttpProxyClientTests
         var client = new HttpProxyClient(clientOptions);
         using var tcp = new TcpClient();
 
-        var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() => 
+        var ex = await Assert.ThrowsExactlyAsync<ProxyClientException>(() => 
             client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None)
         );
         Assert.AreEqual(SocketError.AccessDenied, ex.SocketErrorCode);
@@ -109,7 +109,7 @@ public class HttpProxyClientTests
         var client = new HttpProxyClient(clientOptions);
         using var tcp = new TcpClient();
 
-        var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ProxyClientException>(() =>
             client.ConnectAsync(tcp, echo.EndPoint.Address.ToString(), echo.EndPoint.Port, CancellationToken.None)
         );
         Assert.AreEqual(SocketError.AccessDenied, ex.SocketErrorCode);

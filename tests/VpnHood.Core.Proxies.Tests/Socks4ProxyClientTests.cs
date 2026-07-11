@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using VpnHood.Core.Proxies.Socks4ProxyClients;
 
-namespace VpnHood.Core.Proxies.Test;
+namespace VpnHood.Core.Proxies.Tests;
 
 [TestClass]
 public class Socks4ProxyClientTests
@@ -49,7 +49,7 @@ public class Socks4ProxyClientTests
             var client = new Socks4ProxyClient(options);
             using var tcp = new TcpClient();
 
-            var ex = await Assert.ThrowsExceptionAsync<ProxyClientException>(() =>
+            var ex = await Assert.ThrowsExactlyAsync<ProxyClientException>(() =>
                 client.ConnectAsync(tcp, new IPEndPoint(IPAddress.IPv6Loopback, 80), CancellationToken.None));
             Assert.AreEqual(SocketError.AddressFamilyNotSupported, ex.SocketErrorCode);
         }

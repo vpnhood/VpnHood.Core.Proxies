@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-namespace VpnHood.Core.Proxies.Test.TestHelpers;
+namespace VpnHood.Core.Proxies.Tests.TestHelpers;
 
 /// <summary>
 /// A minimal HTTP origin server that captures the request it receives and replies

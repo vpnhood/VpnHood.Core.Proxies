@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace VpnHood.Core.Proxies.Test.TestHelpers;
+namespace VpnHood.Core.Proxies.Tests.TestHelpers;
 
 internal sealed class UdpEchoServer : IDisposable
 {

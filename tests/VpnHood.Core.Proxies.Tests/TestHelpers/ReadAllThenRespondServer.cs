@@ -1,15 +1,21 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace VpnHood.Core.Proxies.Test.TestHelpers;
+namespace VpnHood.Core.Proxies.Tests.TestHelpers;
 
-internal sealed class EchoServer : IDisposable {
+/// <summary>
+/// A TCP server that reads until EOF and only then echoes everything back.
+/// A response can only ever arrive if TCP half-close (client Shutdown(Send))
+/// propagates through the proxy chain — this is the half-close litmus test.
+/// </summary>
+internal sealed class ReadAllThenRespondServer : IDisposable
+{
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
 
     public IPEndPoint EndPoint { get; }
 
-    public EchoServer(IPAddress address)
+    public ReadAllThenRespondServer(IPAddress address)
     {
         _listener = new TcpListener(new IPEndPoint(address, 0));
         _listener.Start();
@@ -30,17 +36,21 @@ internal sealed class EchoServer : IDisposable {
         }
     }
 
-    private static async Task HandleClientAsync(TcpClient client)
+    private async Task HandleClientAsync(TcpClient client)
     {
         using var tcp = client;
-        var stream = tcp.GetStream();
-        var buf = new byte[4096];
         try {
+            var stream = tcp.GetStream();
+
+            using var received = new MemoryStream();
+            var buf = new byte[4096];
             while (true) {
-                var n = await stream.ReadAsync(buf);
-                if (n <= 0) break;
-                await stream.WriteAsync(buf.AsMemory(0, n));
+                var n = await stream.ReadAsync(buf, _cts.Token);
+                if (n == 0) break; // client half-closed; now respond
+                received.Write(buf, 0, n);
             }
+
+            await stream.WriteAsync(received.ToArray(), _cts.Token);
         }
         catch {
             // ignored
@@ -49,13 +59,10 @@ internal sealed class EchoServer : IDisposable {
 
     public void Dispose()
     {
-        try { _cts.Cancel(); }
-        catch {
+        try { _cts.Cancel(); } catch {
             // ignored
         }
-
-        try { _listener.Stop(); }
-        catch {
+        try { _listener.Stop(); } catch {
             // ignored
         }
         _cts.Dispose();

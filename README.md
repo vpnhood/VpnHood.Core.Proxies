@@ -17,7 +17,7 @@ Common properties:
 
 * Standalone and reusable — plain .NET, no VPN or VpnHood runtime required; the only dependency is `Microsoft.Extensions.Logging.Abstractions`
 * Fully asynchronous, cancellation-aware I/O; no blocking calls
-* Handshake and connect timeouts with sensible defaults ([options classes](VpnHood.Core.Proxies/Socks5ProxyServers/Socks5ProxyServerOptions.cs))
+* Handshake and connect timeouts with sensible defaults ([options classes](src/VpnHood.Core.Proxies/Socks5ProxyServers/Socks5ProxyServerOptions.cs))
 * Built for memory-constrained hosts (mobile network extensions, small containers): every per-connection resource is bounded — an optional `MaxConnections` cap (unlimited by default), capped header sizes, bounded UDP destination tables, and a TCP half-close linger timeout so idle peers cannot retain tunnels indefinitely
 * Correct TCP half-close: a peer that shuts down its send side still receives the full response through the tunnel
 * Low-allocation hot paths (`ArrayPool`, pooled tunnel buffers, spans)
@@ -190,8 +190,8 @@ The repo ships two small CLI utilities, handy for manual testing:
 * **VpnHood.Core.Proxies.ClientApp** (`VhProxyClient`) — connect through any supported proxy and exchange test data.
 
 ```bash
-dotnet run --project VpnHood.Core.Proxies.ServerApp -- socks5 --port 1080 --username user --password pass
-dotnet run --project VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080 --username user --password pass
+dotnet run --project samples/VpnHood.Core.Proxies.ServerApp -- socks5 --port 1080 --username user --password pass
+dotnet run --project samples/VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080 --username user --password pass
 ```
 
 See [USAGE.md](USAGE.md) for all commands and options.
@@ -202,7 +202,7 @@ Proxy-level failures throw `ProxyClientException`, which derives from `SocketExc
 
 ## Testing
 
-Integration tests live in `VpnHood.Core.Proxies.Test` and run the real clients against the real servers over loopback — including UDP relays, TLS proxies, IPv6 CONNECT, pipelined requests, and injection attempts against the UDP relay:
+Integration tests live in `tests/VpnHood.Core.Proxies.Tests` and run the real clients against the real servers over loopback — including UDP relays, TLS proxies, IPv6 CONNECT, pipelined requests, and injection attempts against the UDP relay:
 
 ```bash
 dotnet test

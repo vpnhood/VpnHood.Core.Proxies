@@ -5,9 +5,9 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using VpnHood.Core.Proxies.HttpProxyClients;
 using VpnHood.Core.Proxies.HttpProxyServers;
-using VpnHood.Core.Proxies.Test.TestHelpers;
+using VpnHood.Core.Proxies.Tests.TestHelpers;
 
-namespace VpnHood.Core.Proxies.Test;
+namespace VpnHood.Core.Proxies.Tests;
 
 [TestClass]
 public class HttpProxyServerTests

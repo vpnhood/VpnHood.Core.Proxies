@@ -1,0 +1,21 @@
+<Solution>
+	<Folder Name="/Solution Items/">
+		<File Path=".editorconfig" />
+		<File Path="Directory.Build.props" />
+		<File Path="Directory.Packages.props" />
+		<File Path="global.json" />
+		<File Path="README.md" />
+		<File Path="USAGE.md" />
+		<File Path="_publish.ps1" />
+	</Folder>
+	<Folder Name="/src/">
+		<Project Path="src/VpnHood.Core.Proxies/VpnHood.Core.Proxies.csproj" />
+	</Folder>
+	<Folder Name="/samples/">
+		<Project Path="samples/VpnHood.Core.Proxies.ClientApp/VpnHood.Core.Proxies.ClientApp.csproj" />
+		<Project Path="samples/VpnHood.Core.Proxies.ServerApp/VpnHood.Core.Proxies.ServerApp.csproj" />
+	</Folder>
+	<Folder Name="/tests/">
+		<Project Path="tests/VpnHood.Core.Proxies.Tests/VpnHood.Core.Proxies.Tests.csproj" />
+	</Folder>
+</Solution>

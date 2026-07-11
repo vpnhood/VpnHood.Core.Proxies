@@ -1,22 +1,23 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace VpnHood.Core.Proxies.Test.TestHelpers;
+namespace VpnHood.Core.Proxies.Tests.TestHelpers;
 
 /// <summary>
-/// A TCP server that reads until EOF and only then echoes everything back.
-/// A response can only ever arrive if TCP half-close (client Shutdown(Send))
-/// propagates through the proxy chain — this is the half-close litmus test.
+/// A TCP server that speaks first: it sends a banner immediately after accepting a
+/// connection (like SMTP or SSH), then echoes whatever it receives.
 /// </summary>
-internal sealed class ReadAllThenRespondServer : IDisposable
+internal sealed class BannerServer : IDisposable
 {
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
 
     public IPEndPoint EndPoint { get; }
+    public byte[] Banner { get; }
 
-    public ReadAllThenRespondServer(IPAddress address)
+    public BannerServer(IPAddress address, byte[] banner)
     {
+        Banner = banner;
         _listener = new TcpListener(new IPEndPoint(address, 0));
         _listener.Start();
         EndPoint = (IPEndPoint)_listener.LocalEndpoint;
@@ -41,16 +42,14 @@ internal sealed class ReadAllThenRespondServer : IDisposable
         using var tcp = client;
         try {
             var stream = tcp.GetStream();
+            await stream.WriteAsync(Banner, _cts.Token);
 
-            using var received = new MemoryStream();
             var buf = new byte[4096];
             while (true) {
                 var n = await stream.ReadAsync(buf, _cts.Token);
-                if (n == 0) break; // client half-closed; now respond
-                received.Write(buf, 0, n);
+                if (n <= 0) break;
+                await stream.WriteAsync(buf.AsMemory(0, n), _cts.Token);
             }
-
-            await stream.WriteAsync(received.ToArray(), _cts.Token);
         }
         catch {
             // ignored

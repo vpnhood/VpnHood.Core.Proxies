@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Sockets;
 using VpnHood.Core.Proxies.Socks5ProxyClients;
 using VpnHood.Core.Proxies.Socks5ProxyServers;
-using VpnHood.Core.Proxies.Test.TestHelpers;
+using VpnHood.Core.Proxies.Tests.TestHelpers;
 using IPEndPoint = System.Net.IPEndPoint;
 
-namespace VpnHood.Core.Proxies.Test;
+namespace VpnHood.Core.Proxies.Tests;
 
 [TestClass]
 public class Socks5ProxyClientTests
@@ -49,7 +49,7 @@ public class Socks5ProxyClientTests
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
-        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(async () =>
         {
             await client.ConnectAsync(tcp, echo.EndPoint, CancellationToken.None);
         });
@@ -85,7 +85,7 @@ public class Socks5ProxyClientTests
         var client = new Socks5ProxyClient(options);
 
         using var tcp = new TcpClient();
-        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(async () =>
         {
             await client.ConnectAsync(tcp, echo.EndPoint, CancellationToken.None);
         });
@@ -147,7 +147,7 @@ public class Socks5ProxyClientTests
 
         using var controlTcp = new TcpClient();
         
-        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(async () =>
         {
             await client.CreateUdpAssociateAsync(controlTcp, CancellationToken.None);
         });
@@ -297,7 +297,7 @@ public class Socks5ProxyClientTests
         var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
-        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(async () =>
         {
             await client.CheckConnectionAsync(tcp, CancellationToken.None);
         });
@@ -310,7 +310,7 @@ public class Socks5ProxyClientTests
         var options = new Socks5ProxyClientOptions { ProxyEndPoint = server.ListenerEndPoint, Username = "wrong", Password = "creds" };
         var client = new Socks5ProxyClient(options);
         using var tcp = new TcpClient();
-        await Assert.ThrowsExceptionAsync<UnauthorizedAccessException>(async () =>
+        await Assert.ThrowsExactlyAsync<UnauthorizedAccessException>(async () =>
         {
             await client.CheckConnectionAsync(tcp, CancellationToken.None);
         });
@@ -490,7 +490,7 @@ public class Socks5ProxyClientTests
 
         // the client must not receive anything
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () =>
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () =>
         {
             await udpClient.ReceiveAsync(timeoutCts.Token);
         });

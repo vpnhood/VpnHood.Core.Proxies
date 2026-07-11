@@ -1,23 +1,16 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace VpnHood.Core.Proxies.Test.TestHelpers;
+namespace VpnHood.Core.Proxies.Tests.TestHelpers;
 
-/// <summary>
-/// A TCP server that speaks first: it sends a banner immediately after accepting a
-/// connection (like SMTP or SSH), then echoes whatever it receives.
-/// </summary>
-internal sealed class BannerServer : IDisposable
-{
+internal sealed class EchoServer : IDisposable {
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
 
     public IPEndPoint EndPoint { get; }
-    public byte[] Banner { get; }
 
-    public BannerServer(IPAddress address, byte[] banner)
+    public EchoServer(IPAddress address)
     {
-        Banner = banner;
         _listener = new TcpListener(new IPEndPoint(address, 0));
         _listener.Start();
         EndPoint = (IPEndPoint)_listener.LocalEndpoint;
@@ -37,18 +30,16 @@ internal sealed class BannerServer : IDisposable
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client)
+    private static async Task HandleClientAsync(TcpClient client)
     {
         using var tcp = client;
+        var stream = tcp.GetStream();
+        var buf = new byte[4096];
         try {
-            var stream = tcp.GetStream();
-            await stream.WriteAsync(Banner, _cts.Token);
-
-            var buf = new byte[4096];
             while (true) {
-                var n = await stream.ReadAsync(buf, _cts.Token);
+                var n = await stream.ReadAsync(buf);
                 if (n <= 0) break;
-                await stream.WriteAsync(buf.AsMemory(0, n), _cts.Token);
+                await stream.WriteAsync(buf.AsMemory(0, n));
             }
         }
         catch {
@@ -58,10 +49,13 @@ internal sealed class BannerServer : IDisposable
 
     public void Dispose()
     {
-        try { _cts.Cancel(); } catch {
+        try { _cts.Cancel(); }
+        catch {
             // ignored
         }
-        try { _listener.Stop(); } catch {
+
+        try { _listener.Stop(); }
+        catch {
             // ignored
         }
         _cts.Dispose();
