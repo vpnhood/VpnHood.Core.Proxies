@@ -17,9 +17,12 @@
 		<Authors>VpnHood</Authors>
 		<Company>OmegaHood LLC</Company>
 		<Copyright>© OmegaHood LLC. All rights reserved.</Copyright>
+		<NeutralLanguage>en</NeutralLanguage>
 		<PackageLicenseExpression>LGPL-2.1-only</PackageLicenseExpression>
 		<PackageProjectUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</PackageProjectUrl>
+		<PackageReleaseNotes>https://github.com/vpnhood/VpnHood.Core.Proxies/releases</PackageReleaseNotes>
 		<RepositoryUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 		<IncludeSymbols>true</IncludeSymbols>

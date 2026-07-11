@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
+		<Title>VpnHood.Core.Proxies</Title>
 		<Description>Standard SOCKS5, SOCKS4/4a, HTTP and HTTPS proxy clients and servers for .NET. An independent, reusable, cross-platform library: async, cancellation-aware, IPv6-ready, with username/password and Basic authentication and SOCKS5 UDP ASSOCIATE support.</Description>
 		<PackageTags>proxy;socks5;socks4;http-proxy;https-proxy;socks;connect;udp;proxy-server;proxy-client;dotnet</PackageTags>
 		<PackageIcon>VpnHood.png</PackageIcon>
