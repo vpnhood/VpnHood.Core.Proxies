@@ -1,6 +1,6 @@
 <Project>
 	<!-- The single <Version> every project inherits. Stamped from Pub/PubVersion.json by the shared
-	     publish module (vpnhood/VpnHood: Pub/Lib/PublishModuleNugets.ps1) — do not edit by hand. -->
+	     publishing module (vpnhood/VpnHood: Pub/Lib/PublishModuleNugets.ps1) — do not edit by hand. -->
 	<PropertyGroup>
 		<Version>8.0.834</Version>
 	</PropertyGroup>

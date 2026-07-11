@@ -2,7 +2,7 @@
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<AssemblyName>VhProxyServer</AssemblyName>
-		<!-- Demo/tool app, not a NuGet library; excluded from the publish pipeline -->
+		<!-- Demo/tool app, not a NuGet library; excluded from the publishing pipeline -->
 		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
