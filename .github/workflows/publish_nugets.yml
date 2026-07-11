@@ -1,11 +1,11 @@
 name: Publish NuGet Packages
 
 # Publishes this repo's NuGet packages through the shared cross-repo module in vpnhood/VpnHood
-# (Pub/Lib/PublishModuleNugets.ps1 does the work). Dispatch it from `main`.
+# (pub/Lib/PublishModuleNugets.ps1 does the work). Dispatch it from `main`.
 #
 # Publishes a stable X.Y.Z — vpnhood NuGets are never prerelease (monorepo
-# Pub/RELEASE-STRATEGY.md: "NuGet is always a stable Release version"); the `prerelease` input is
-# a manual escape hatch, normally left off. Versioning is automatic (Pub/PubVersion.json +
+# pub/RELEASE-STRATEGY.md: "NuGet is always a stable Release version"); the `prerelease` input is
+# a manual escape hatch, normally left off. Versioning is automatic (pub/PubVersion.json +
 # Directory.Build.props): the module adopts the monorepo's develop version when the monorepo is
 # ahead, otherwise bumps this repo's own build number, and commits the bump back to the dispatched
 # branch. Pinned @develop on purpose — vpnhood-internal repos release in lockstep with the monorepo.
