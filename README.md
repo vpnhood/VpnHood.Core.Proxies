@@ -17,7 +17,7 @@ Common properties:
 
 * Standalone and reusable — plain .NET, no VPN or VpnHood runtime required; the only dependency is `Microsoft.Extensions.Logging.Abstractions`
 * Fully asynchronous, cancellation-aware I/O; no blocking calls
-* Handshake and connect timeouts with sensible defaults ([options classes](src/VpnHood.Core.Proxies/Socks5ProxyServers/Socks5ProxyServerOptions.cs))
+* Handshake and connect timeouts with sensible defaults ([options classes](https://github.com/vpnhood/VpnHood.Core.Proxies/blob/main/src/VpnHood.Core.Proxies/Socks5ProxyServers/Socks5ProxyServerOptions.cs))
 * Built for memory-constrained hosts (mobile network extensions, small containers): every per-connection resource is bounded — an optional `MaxConnections` cap (unlimited by default), capped header sizes, bounded UDP destination tables, and a TCP half-close linger timeout so idle peers cannot retain tunnels indefinitely
 * Correct TCP half-close: a peer that shuts down its send side still receives the full response through the tunnel
 * Low-allocation hot paths (`ArrayPool`, pooled tunnel buffers, spans)
@@ -194,7 +194,7 @@ dotnet run --project samples/VpnHood.Core.Proxies.ServerApp -- socks5 --port 108
 dotnet run --project samples/VpnHood.Core.Proxies.ClientApp -- socks5 --proxy-port 1080 --username user --password pass
 ```
 
-See [USAGE.md](USAGE.md) for all commands and options.
+See [USAGE.md](https://github.com/vpnhood/VpnHood.Core.Proxies/blob/main/USAGE.md) for all commands and options.
 
 ## Error handling
 
@@ -210,4 +210,4 @@ dotnet test
 
 ## License
 
-[LGPL-2.1](LICENSE) © OmegaHood LLC — an independent library maintained by the [VpnHood](https://github.com/vpnhood/vpnhood) team.
+[LGPL-2.1](https://github.com/vpnhood/VpnHood.Core.Proxies/blob/main/LICENSE) © OmegaHood LLC — an independent library maintained by the [VpnHood](https://github.com/vpnhood/vpnhood) team.
