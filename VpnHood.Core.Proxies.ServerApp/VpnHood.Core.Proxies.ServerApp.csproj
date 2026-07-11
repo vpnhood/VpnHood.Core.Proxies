@@ -3,6 +3,8 @@
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
 		<AssemblyName>VhProxyServer</AssemblyName>
+		<!-- Demo/tool app, not a NuGet library; excluded from the publish pipeline -->
+		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
 	<PropertyGroup>
@@ -24,7 +26,6 @@
 		<PackageIcon>VpnHood.png</PackageIcon>
 		<PackageProjectUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</RepositoryUrl>
-		<Version>7.3.737</Version>
 		<FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
 	</PropertyGroup>
 

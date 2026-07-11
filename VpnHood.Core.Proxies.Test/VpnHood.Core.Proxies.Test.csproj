@@ -2,6 +2,7 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<UseVSTest>true</UseVSTest>
+		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
 	<PropertyGroup>
@@ -19,7 +20,6 @@
 		<PackageIcon>VpnHood.png</PackageIcon>
 		<PackageProjectUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/vpnhood/VpnHood.Core.Proxies</RepositoryUrl>
-		<Version>7.3.737</Version>
 		<FileVersion>$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</FileVersion>
 	</PropertyGroup>
 
